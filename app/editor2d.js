@@ -1,7 +1,7 @@
 // Editorul de plan: desen cu mouse-ul, prindere (snap), introducere numerică a lungimilor,
 // selecție, mutare, editarea punctelor și detectarea automată a camerelor.
 import {
-  MATERIALS, USES, addElement, byId, dist, sub, add, mul, norm, perp, dot, len, projectOnSegment, polyArea, polyCentroid,
+  MATERIALS, USES, COMPOSITES, FINISH, layersOf, openingMarks, footingExtensions, addElement, byId, dist, sub, add, mul, norm, perp, dot, len, projectOnSegment, polyArea, polyCentroid,
   pointInPoly, wallOutline, wallLength, openingsOf, sortedStoreys, storeyOf, bbox,
 } from './model.js';
 import { A, emit, snapshot, deleteElements } from './state.js';
@@ -65,7 +65,7 @@ export class PlanEditor {
       if (ignore.has(e.id)) continue;
       const pts = e.pts || [e.a, e.b, e.p].filter(Boolean);
       for (const q of pts) consider(q, 'capăt', 0);
-      if (e.type === 'wall' || e.type === 'beam') {
+      if (e.type === 'wall' || e.type === 'beam' || e.type === 'footing') {
         consider(mul(add(e.a, e.b), 0.5), 'mijloc', 1);
         if (e.type === 'wall') {
           // colțurile fețelor peretelui
@@ -120,7 +120,7 @@ export class PlanEditor {
   hit(p) {
     const tol = (this.touch ? 12 : 6) / this.v.s;
     const els = this.storeyEls();
-    const ord = (e) => ({ window: 0, door: 0, column: 1, wall: 2, beam: 3, dim: 4, zone: 6, roof: 7, slab: 8 }[e.type] ?? 9);
+    const ord = (e) => ({ window: 0, door: 0, column: 1, wall: 2, beam: 3, footing: 3.5, dim: 4, zone: 6, roof: 7, slab: 8 }[e.type] ?? 9);
     const hits = [];
     for (const e of els) {
       let ok = false, edge = false;
@@ -129,7 +129,7 @@ export class PlanEditor {
         const w = byId(A.p, e.wall);
         if (w) { const r = projectOnSegment(p, w.a, w.b); ok = r.d < w.thickness / 2 + tol && Math.abs(r.along - e.pos) < e.width / 2; }
       } else if (e.type === 'column') ok = Math.abs(p[0] - e.p[0]) < e.w / 2 + tol && Math.abs(p[1] - e.p[1]) < e.d / 2 + tol;
-      else if (e.type === 'beam') ok = projectOnSegment(p, e.a, e.b).d < e.w / 2 + tol;
+      else if (e.type === 'beam' || e.type === 'footing') ok = projectOnSegment(p, e.a, e.b).d < e.w / 2 + tol;
       else if (e.type === 'dim') { const [a, b] = this.dimLine(e); ok = projectOnSegment(p, a, b).d < tol * 1.5; }
       else if (e.pts) {
         for (let i = 0; i < e.pts.length; i++) if (projectOnSegment(p, e.pts[i], e.pts[(i + 1) % e.pts.length]).d < tol) edge = true;
@@ -418,11 +418,11 @@ export class PlanEditor {
     const t = A.tool, D = A.defaults[t];
     if (!this.draw) this.draw = { pts: [] };
     const pts = this.draw.pts;
-    if ((t === 'wall' || t === 'beam') && pts.length) {
+    if ((t === 'wall' || t === 'beam' || t === 'footing') && pts.length) {
       const a = pts[pts.length - 1];
       if (dist(a, p) < 0.02) return;
       snapshot();
-      const el = addElement(A.p, t === 'wall' ? { type: 'wall', storey: A.storey, a: a.slice(), b: p.slice(), ...D } : { type: 'beam', storey: A.storey, a: a.slice(), b: p.slice(), ...D });
+      const el = addElement(A.p, { type: t, storey: A.storey, a: a.slice(), b: p.slice(), ...D });
       A.sel.clear(); A.sel.add(el.id);
       emit('model');
       if (dist(p, pts[0]) < 0.01 && pts.length > 1) { this.draw = null; return; }
@@ -590,6 +590,7 @@ export class PlanEditor {
     const hints = {
       wall: pts.length ? 'Clic pentru următorul punct · tastează lungimea + Enter · dublu-clic/Esc pentru final' : 'Clic pentru începutul peretelui',
       beam: pts.length ? 'Clic pentru capătul grinzii · tastează lungimea + Enter' : 'Clic pentru începutul grinzii',
+      footing: pts.length ? 'Clic pentru capătul fundației (pe axa peretelui) · sau meniul ☰ → Generează fundațiile' : 'Clic pe axa peretelui pentru începutul fundației continue',
       slab: A.defaults.slab.mode === 'auto' ? 'Clic în interiorul pereților pentru placă' : pts.length ? 'Clic pe colțul opus / următorul punct' : 'Clic pentru primul colț',
       zone: A.defaults.zone.mode === 'auto' ? 'Clic în interiorul unei camere – conturul se detectează din pereți' : pts.length ? 'Clic pe colțul opus / următorul punct' : 'Clic pentru primul colț',
       roof: pts.length ? 'Clic pe colțul opus / următorul punct' : 'Clic pentru primul colț al acoperișului (cu streașina)',
@@ -626,11 +627,12 @@ export class PlanEditor {
     for (const e of by('roof')) this.paintRoof(e, selected(e));
     for (const e of by('beam')) this.paintBeam(e, selected(e));
     // pereți: întâi conturul gros, apoi umplutura – liniile interioare de la îmbinări dispar
+    for (const e of by('footing')) this.paintFooting(e, selected(e));
     const walls = by('wall');
     for (const w of walls) this.poly(wallOutline(A.p, w), null, A.sel.has(w.id) ? SEL : INK, A.sel.has(w.id) ? 3 : 2);
-    for (const w of walls) this.poly(wallOutline(A.p, w), this.wallFill(w), null);
-    for (const w of walls) if (MATERIALS[w.material]?.kind === 'zidarie') this.hatch(wallOutline(A.p, w), w);
+    for (const w of walls) this.paintWallLayers(w);
     for (const e of els) if (e.type === 'door' || e.type === 'window') this.paintOpening(e, selected(e));
+    if (this.v.s > 18) { const marks = openingMarks(A.p); for (const e of els) if (e.type === 'door' || e.type === 'window') this.paintMark(e, marks.get(e.id)); }
     for (const e of by('column')) this.paintColumn(e, selected(e));
     for (const e of by('dim')) this.paintDim(e, selected(e));
     if (A.showLoads && A.loads) this.paintLoads();
@@ -687,6 +689,69 @@ export class PlanEditor {
     if (fill) { c.fillStyle = fill; c.fill(); }
     if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw; c.stroke(); }
   }
+  // perete desenat pe straturi (fiecare strat cu culoarea / hașura materialului)
+  paintWallLayers(w) {
+    const ls = layersOf(w);
+    const sel = A.sel.has(w.id);
+    const out = wallOutline(A.p, w);
+    if (ls.length < 2) {
+      this.poly(out, this.wallFill(w), null);
+      if (MATERIALS[w.material]?.kind === 'zidarie') this.hatch(out, w);
+      return;
+    }
+    // straturile se pun de la fața exterioară (dreapta sensului de desen) spre interior
+    const d = norm(sub(w.b, w.a)), n = perp(d);
+    const a0 = mul(add(out[0], out[3]), 0.5), b0 = mul(add(out[1], out[2]), 0.5); // capetele axei, cu prelungiri
+    const sgn = w.flipLayers ? 1 : -1;
+    let off = sgn * w.thickness / 2;
+    for (const l of ls) {
+      const o2 = off - sgn * l.t;
+      const strip = [add(a0, mul(n, off)), add(b0, mul(n, off)), add(b0, mul(n, o2)), add(a0, mul(n, o2))];
+      const m = MATERIALS[l.m];
+      let fill = sel ? '#dbe6ff' : (m?.kind === 'beton' ? '#9aa1ab' : m?.color || '#ddd');
+      this.poly(strip, fill, null);
+      if (!sel && m?.kind === 'zidarie') this.hatch(strip, w);
+      if (!sel && m?.kind === 'izolatie' && this.v.s > 30) this.dots(strip);
+      off = o2;
+    }
+  }
+  dots(pts) {
+    const c = this.ctx;
+    c.save(); this.path(pts); c.clip();
+    const b = bbox(pts.map((p) => this.toScreen(p)));
+    c.fillStyle = 'rgba(160,120,20,.45)';
+    for (let y = b.y0; y < b.y1; y += 5) for (let x = b.x0 + ((y / 5) % 2) * 2.5; x < b.x1; x += 5) c.fillRect(x, y, 1.2, 1.2);
+    c.restore();
+  }
+  paintFooting(e, sel) {
+    const c = this.ctx;
+    const d = norm(sub(e.b, e.a)), n = mul(perp(d), e.w / 2);
+    const [e0, e1] = e.storey === '__' ? [0, 0] : footingExtensions(A.p, e);
+    const a = sub(e.a, mul(d, e0)), b = add(e.b, mul(d, e1));
+    c.setLineDash([7, 4]);
+    this.poly([add(a, n), add(b, n), sub(b, n), sub(a, n)], sel ? 'rgba(37,99,235,.10)' : 'rgba(120,130,145,.08)', sel ? SEL : '#7b8494', sel ? 2 : 1.2);
+    c.setLineDash([]);
+  }
+  paintMark(e, mark) {
+    const g = this.openingGeom(e);
+    if (!g || !mark) return;
+    const c = this.ctx;
+    // eticheta pe partea exterioară (dreapta sensului de desen)
+    const side = g.w.flipLayers ? 1 : -1;
+    const pos = add(mul(add(g.c0, g.c1), 0.5), mul(g.n, side * (g.h + 18 / this.v.s)));
+    const [x, y] = this.toScreen(pos);
+    const txt = `${mark}`;
+    const sub2 = `${Math.round(e.width * 100)}×${Math.round(e.height * 100)}`;
+    c.font = '600 11px system-ui, sans-serif';
+    const w = Math.max(c.measureText(txt).width, this.v.s > 35 ? c.measureText(sub2).width : 0) + 10;
+    const h = this.v.s > 35 ? 28 : 16;
+    c.fillStyle = '#fff'; c.strokeStyle = e.type === 'window' ? '#1f6fb2' : '#8a5a2b'; c.lineWidth = 1;
+    c.beginPath(); c.roundRect ? c.roundRect(x - w / 2, y - h / 2, w, h, 4) : c.rect(x - w / 2, y - h / 2, w, h); c.fill(); c.stroke();
+    c.fillStyle = c.strokeStyle; c.textAlign = 'center';
+    c.fillText(txt, x, y + (h > 16 ? -2 : 4));
+    if (h > 16) { c.font = '10px system-ui, sans-serif'; c.fillStyle = '#475569'; c.fillText(sub2, x, y + 11); }
+    c.textAlign = 'start';
+  }
   wallFill(w) {
     if (A.sel.has(w.id)) return '#dbe6ff';
     const m = MATERIALS[w.material];
@@ -714,6 +779,10 @@ export class PlanEditor {
     c.textAlign = 'center'; c.fillStyle = '#4a3b12';
     c.font = '600 12px system-ui, sans-serif'; c.fillText(e.name || '', x, y - 4);
     c.font = '11px system-ui, sans-serif'; c.fillText(`${e.number ? e.number + ' · ' : ''}${fmt(Math.abs(polyArea(e.pts)))} m²`, x, y + 10);
+    if (this.v.s > 34 && e.floor) {
+      c.font = '10px system-ui, sans-serif'; c.fillStyle = '#7a6a3a';
+      c.fillText(`${FINISH.floor[e.floor] || ''}${e.walls === 'faianta' ? ' · faianță' : ''}`, x, y + 23);
+    }
     c.textAlign = 'start';
   }
   paintRoof(e, sel) {
@@ -829,6 +898,7 @@ export class PlanEditor {
       const fake = { type: 'wall', a: last, b: s.p, thickness: D.thickness, storey: '__' };
       if (dist(last, s.p) > 0.01) this.poly(wallOutline(A.p, fake), 'rgba(37,99,235,.15)', SEL, 1.5);
     } else if (t === 'beam') this.paintBeam({ a: last, b: s.p, w: D.w }, true);
+    else if (t === 'footing') this.paintFooting({ type: 'footing', a: last, b: s.p, w: D.w, storey: '__' }, true);
     else if (t === 'dim') {
       if (pts.length === 1) { this.path([last, s.p]); c.stroke(); } else { const dir = norm(sub(pts[1], pts[0])); this.paintDim({ a: pts[0], b: pts[1], offset: dot(sub(s.p, pts[0]), perp(dir)) }, true); }
     } else if (['slab', 'zone', 'roof'].includes(t)) {

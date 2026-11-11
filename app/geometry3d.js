@@ -2,7 +2,7 @@
 // Sistemul three.js: x = x plan, y = cotă (sus), z = -y plan.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MATERIALS, byId, storeyOf, wallPieces, wallLength, norm, sub, bbox } from './model.js';
+import { MATERIALS, byId, storeyOf, wallPieces, wallLength, norm, sub, bbox, layersOf, footingExtensions } from './model.js';
 
 const toIndexed = (g) => { if (!g.index) { const n = g.attributes.position.count, a = new Uint32Array(n); for (let i = 0; i < n; i++) a[i] = i; g.setIndex(new THREE.BufferAttribute(a, 1)); } for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k); return g; };
 const merge = (list) => (list.length === 1 ? toIndexed(list[0]) : mergeGeometries(list.map(toIndexed)));
@@ -79,10 +79,22 @@ export function elementGeometry(p, e) {
   const mat = MATERIALS[e.material];
   switch (e.type) {
     case 'wall': {
-      const pieces = wallPieces(p, e).map(([u0, u1, z0, z1]) => localBox(u0, u1, -e.thickness / 2, e.thickness / 2, z0, z1));
-      if (!pieces.length) return [];
-      const g = merge(pieces).applyMatrix4(lineMatrix(e.a, e.b, z + (e.base || 0)));
-      return [{ geo: g, color: mat?.c3 || 0xdddddd }];
+      const pcs = wallPieces(p, e);
+      if (!pcs.length) return [];
+      const m = lineMatrix(e.a, e.b, z + (e.base || 0));
+      const ls = layersOf(e);
+      if (ls.length < 2) return [{ geo: merge(pcs.map(([u0, u1, z0, z1]) => localBox(u0, u1, -e.thickness / 2, e.thickness / 2, z0, z1))).applyMatrix4(m), color: mat?.c3 || 0xdddddd }];
+      // straturi: de la fața exterioară (dreapta sensului de desen, adică +v local) spre interior
+      const out = [];
+      const sgn = e.flipLayers ? -1 : 1;
+      let v = sgn * e.thickness / 2;
+      for (const l of ls) {
+        const v2 = v - sgn * l.t;
+        const [va, vb] = [Math.min(v, v2), Math.max(v, v2)];
+        out.push({ geo: merge(pcs.map(([u0, u1, z0, z1]) => localBox(u0, u1, va, vb, z0, z1))).applyMatrix4(m), color: MATERIALS[l.m]?.c3 || 0xdddddd });
+        v = v2;
+      }
+      return out;
     }
     case 'door': case 'window': {
       const w = byId(p, e.wall);
@@ -100,8 +112,17 @@ export function elementGeometry(p, e) {
       return out;
     }
     case 'slab': {
-      const top = z + (e.offset || 0);
-      return [{ geo: prism(e.pts, top - e.thickness, top), color: mat?.c3 || 0xcccccc }];
+      let top = z + (e.offset || 0);
+      const ls = layersOf(e);
+      if (ls.length < 2) return [{ geo: prism(e.pts, top - e.thickness, top), color: mat?.c3 || 0xcccccc }];
+      return ls.map((l) => { const g = prism(e.pts, top - l.t, top); top -= l.t; return { geo: g, color: MATERIALS[l.m]?.c3 || 0xcccccc }; });
+    }
+    case 'footing': {
+      const [e0, e1] = footingExtensions(p, e);
+      const L = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+      const bottom = z - e.depth;
+      const g = (e.pad ? localBox(0, L, -e.w / 2, e.w / 2, bottom, bottom + e.h) : localBox(-e0, L + e1, -e.w / 2, e.w / 2, bottom, bottom + e.h)).applyMatrix4(lineMatrix(e.a, e.b, 0));
+      return [{ geo: g, color: 0x9da3ad }];
     }
     case 'column': {
       const h = e.height;
