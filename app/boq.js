@@ -3,7 +3,7 @@
 import { profileByName } from './design.js';
 import {
   MATERIALS, COMPOSITES, FINISH, layersOf, openingMarks, storeyOf, byId, wallLength, openingsOf, polyArea, polyPerimeter,
-  projectOnSegment, dist, footingExtensions, sortedStoreys, bbox,
+  projectOnSegment, dist, footingExtensions, sortedStoreys, bbox, lintelOf, beamEndSupports, wallCore, isOpening,
 } from './model.js';
 
 export const CHAPTERS = [
@@ -19,7 +19,7 @@ export const CHAPTERS = [
   ['FE', 'Finisaje exterioare'],
 ];
 // armătură estimată (kg/m³ de beton) – valori uzuale de predimensionare
-export const STEEL = { footing: 50, slab: 90, slabGround: 35, beam: 130, column: 160, wall: 80 };
+export const STEEL = { footing: 50, slab: 90, slabGround: 35, beam: 130, column: 160, wall: 80, lintel: 110, pad: 90 };
 const ROOF_TIMBER = 0.035; // m³ lemn șarpantă pe m² de acoperiș înclinat
 
 const n2 = (v) => Number(v).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,7 +29,7 @@ export function computeBOQ(p) {
   const items = new Map();
   const marks = openingMarks(p);
   const label = (e) => {
-    if (e.type === 'door' || e.type === 'window') return `${marks.get(e.id)} (${e.id.toUpperCase()})`;
+    if (isOpening(e)) return `${marks.get(e.id)} (${e.id.toUpperCase()})`;
     if (e.type === 'zone') return `${e.number || ''} ${e.name || ''}`.trim();
     return `${{ wall: 'Perete', slab: 'Placă', column: 'Stâlp', beam: 'Grindă', roof: 'Acoperiș', footing: 'Fundație' }[e.type] || e.type} ${e.id.toUpperCase()}`;
   };
@@ -86,6 +86,38 @@ export function computeBOQ(p) {
     } else add('S', 'grinzi_' + b.material, `Grinzi din ${MATERIALS[b.material]?.name || b.material}`, 'm³', V, b, `${n2(L)} × ${n2(b.w)} × ${n2(b.h)}`);
   }
 
+  // ------------------------------------------------ cuzineți sub capetele grinzilor rezemate pe zidărie
+  const padArea = new Map(); // perete → aria din elevație ocupată de cuzineți (se scade din zidărie)
+  for (const b of p.elements.filter((e) => e.type === 'beam' && e.padA > 0)) {
+    for (const sup of beamEndSupports(p, b)) {
+      if (!sup || sup.e.type !== 'wall') continue;
+      const t = wallCore(sup.e).t, a = b.padA, h = b.padH || 0.2, V = a * t * h;
+      padArea.set(sup.e.id, (padArea.get(sup.e.id) || 0) + a * h);
+      add('S', 'beton_cuzineti', 'Beton armat C25/30 în cuzineți (reazemele grinzilor pe zidărie)', 'm³', V, b, `${n2(a)} × ${n2(t)} × ${n2(h)} (pe ${sup.e.id.toUpperCase()})`);
+      add('S', 'cofraj_cuzineti', 'Cofraj pentru cuzineți', 'm²', 2 * a * h + 2 * t * h, b, `2 × (${n2(a)} + ${n2(t)}) × ${n2(h)}`);
+      add('S', 'arm_cuzineti', 'Armătură BST500S în cuzineți (estimată)', 'kg', V * STEEL.pad, b, `${n2(V)} m³ × ${STEEL.pad} kg/m³`);
+    }
+  }
+
+  // ------------------------------------------------ buiandrugi peste goluri
+  const lintelArea = new Map();
+  for (const o of p.elements.filter(isOpening)) {
+    const lin = lintelOf(p, o);
+    if (!lin) continue;
+    lintelArea.set(lin.w.id, (lintelArea.get(lin.w.id) || 0) + lin.len * lin.h);
+    const t = lin.core.t;
+    const pr = lin.type === 'otel' && lin.profile && profileByName(lin.profile);
+    if (pr) {
+      const n = o.lintelN || 1;
+      add('S', 'otel_buiandrugi', `Buiandrugi din profile laminate, montați, inclusiv protecție anticorozivă`, 'kg', n * pr.G * lin.len, o, `${n} × ${pr.name} × ${n2(lin.len)} m × ${pr.G} kg/m`);
+    } else {
+      const V = lin.len * t * lin.h;
+      add('S', 'beton_buiandrugi', 'Beton armat C25/30 în buiandrugi', 'm³', V, o, `${n2(lin.len)} × ${n2(t)} × ${n2(lin.h)}`);
+      add('S', 'cofraj_buiandrugi', 'Cofraj pentru buiandrugi (fețe laterale + intrados peste gol)', 'm²', 2 * lin.len * lin.h + o.width * t, o, `2 × ${n2(lin.len)} × ${n2(lin.h)} + ${n2(o.width)} × ${n2(t)}`);
+      add('S', 'arm_buiandrugi', 'Armătură BST500S în buiandrugi (estimată)', 'kg', V * STEEL.lintel, o, `${n2(V)} m³ × ${STEEL.lintel} kg/m³`);
+    }
+  }
+
   // ------------------------------------------------ pereți (pe straturi)
   for (const w of p.elements.filter((e) => e.type === 'wall')) {
     const L = wallLength(w);
@@ -103,7 +135,10 @@ export function computeBOQ(p) {
     for (const l of ls) {
       const m = MATERIALS[l.m];
       const k = m?.kind;
-      if (k === 'zidarie') add('Z', `zid_${l.m}_${Math.round(l.t * 1000)}`, `Zidărie din ${m.short || m.name}, ${cm(l.t)}${w.bearing ? ', portantă' : ''}`, 'm³', net * l.t, w, `(${base}) × ${n2(l.t)}`);
+      if (k === 'zidarie') {
+        const ded = (lintelArea.get(w.id) || 0) + (padArea.get(w.id) || 0);
+        add('Z', `zid_${l.m}_${Math.round(l.t * 1000)}`, `Zidărie din ${m.short || m.name}, ${cm(l.t)}${w.bearing ? ', portantă' : ''}`, 'm³', (net - ded) * l.t, w, `(${base}${ded ? ` − ${n2(ded)} buiandrugi/cuzineți` : ''}) × ${n2(l.t)}`);
+      }
       else if (k === 'beton') {
         add('S', 'beton_pereti', 'Beton armat C25/30 în pereți', 'm³', net * l.t, w, `(${base}) × ${n2(l.t)}`);
         add('S', 'cofraj_pereti', 'Cofraj pentru pereți (ambele fețe)', 'm²', 2 * net, w, `2 × (${base})`);

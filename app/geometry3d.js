@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { profileByName } from './design.js';
-import { beamTop, MATERIALS, byId, storeyOf, wallPieces, wallLength, norm, sub, bbox, layersOf, footingExtensions } from './model.js';
+import { beamTop, lintelOf, beamEndSupports, wallCore, projectOnSegment, MATERIALS, byId, storeyOf, wallPieces, wallLength, norm, sub, bbox, layersOf, footingExtensions } from './model.js';
 
 const toIndexed = (g) => { if (!g.index) { const n = g.attributes.position.count, a = new Uint32Array(n); for (let i = 0; i < n; i++) a[i] = i; g.setIndex(new THREE.BufferAttribute(a, 1)); } for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k); return g; };
 const merge = (list) => (list.length === 1 ? toIndexed(list[0]) : mergeGeometries(list.map(toIndexed)));
@@ -97,11 +97,19 @@ export function elementGeometry(p, e) {
       }
       return out;
     }
-    case 'door': case 'window': {
+    case 'door': case 'window': case 'gap': {
       const w = byId(p, e.wall);
       if (!w) return [];
       const ws = storeyOf(p, w);
       const m = lineMatrix(w.a, w.b, ws.elev + (w.base || 0));
+      // buiandrugul (în grosimea structurală a peretelui; plan +n ↔ local −v)
+      const lin = lintelOf(p, e);
+      const lintelPart = [];
+      if (lin) {
+        const lpr = lin.type === 'otel' && lin.profile && profileByName(lin.profile);
+        lintelPart.push({ geo: localBox(lin.u0, lin.u1, -lin.core.hi - 0.005, -lin.core.lo + 0.005, lin.z0, lin.z1).applyMatrix4(m), color: lpr ? 0x6f7f95 : 0x9aa1ab });
+      }
+      if (e.type === 'gap') return lintelPart;
       const u0 = e.pos - e.width / 2, u1 = e.pos + e.width / 2, z0 = e.sill, z1 = Math.min(w.height, e.sill + e.height);
       const f = 0.06, t = Math.min(0.07, w.thickness * 0.5);
       const frame = [localBox(u0, u0 + f, -t / 2, t / 2, z0, z1), localBox(u1 - f, u1, -t / 2, t / 2, z0, z1), localBox(u0, u1, -t / 2, t / 2, z1 - f, z1)];
@@ -110,7 +118,7 @@ export function elementGeometry(p, e) {
       if (e.type === 'window') out.push({ geo: localBox(u0 + f, u1 - f, -0.012, 0.012, z0 + f, z1 - f).applyMatrix4(m), color: 0x9cc8e8, opacity: 0.4 });
       else out.push({ geo: localBox(u0 + f, u1 - f, -0.02, 0.02, z0, z1 - f).applyMatrix4(m), color: 0x9a6b43 });
       void wallLength;
-      return out;
+      return out.concat(lintelPart);
     }
     case 'slab': {
       let top = z + (e.offset || 0);
@@ -141,14 +149,28 @@ export function elementGeometry(p, e) {
       const top = beamTop(p, e);
       const L = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
       const pr = e.profile && profileByName(e.profile);
+      const padParts = [];
+      if (e.padA > 0) {
+        // cuzineți: blocuri de beton în perete, sub capetele grinzii (lungimea a pe direcția peretelui)
+        for (const sup of beamEndSupports(p, e)) {
+          if (!sup || sup.e.type !== 'wall') continue;
+          const w = sup.e, core = wallCore(w);
+          const ws = storeyOf(p, w);
+          const r = projectOnSegment(sup.pt, w.a, w.b);
+          const bottom = top - (pr ? pr.h / 1000 : e.h);
+          const pz1 = Math.min(bottom, ws.elev + w.height), pz0 = pz1 - (e.padH || 0.2);
+          const mw = lineMatrix(w.a, w.b, 0);
+          padParts.push({ geo: localBox(r.along - e.padA / 2, r.along + e.padA / 2, -core.hi - 0.005, -core.lo + 0.005, pz0, pz1).applyMatrix4(mw), color: 0x8f969f });
+        }
+      }
       if (pr) {
         // profil laminat I: două tălpi și inimă
         const h = pr.h / 1000, b = pr.b / 1000, tw = pr.tw / 1000, tf = pr.tf / 1000;
         const parts = [localBox(0, L, -b / 2, b / 2, top - tf, top), localBox(0, L, -b / 2, b / 2, top - h, top - h + tf), localBox(0, L, -tw / 2, tw / 2, top - h + tf, top - tf)];
-        return [{ geo: merge(parts).applyMatrix4(lineMatrix(e.a, e.b, 0)), color: 0x6f7f95 }];
+        return [{ geo: merge(parts).applyMatrix4(lineMatrix(e.a, e.b, 0)), color: 0x6f7f95 }, ...padParts];
       }
       const g = localBox(0, L, -e.w / 2, e.w / 2, top - e.h, top).applyMatrix4(lineMatrix(e.a, e.b, 0));
-      return [{ geo: g, color: mat?.c3 || 0xbbbbbb }];
+      return [{ geo: g, color: mat?.c3 || 0xbbbbbb }, ...padParts];
     }
     case 'roof': return roofGeometry(e, z + (e.offset ?? s.height));
     case 'zone': {

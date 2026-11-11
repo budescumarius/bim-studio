@@ -1,7 +1,7 @@
 // Editorul de plan: desen cu mouse-ul, prindere (snap), introducere numerică a lungimilor,
 // selecție, mutare, editarea punctelor și detectarea automată a camerelor.
 import {
-  MATERIALS, USES, COMPOSITES, FINISH, layersOf, openingMarks, footingExtensions, addElement, byId, dist, sub, add, mul, norm, perp, dot, len, projectOnSegment, polyArea, polyCentroid,
+  isOpening, lintelOf, wallCore, beamEndSupports, MATERIALS, USES, COMPOSITES, FINISH, layersOf, openingMarks, footingExtensions, addElement, byId, dist, sub, add, mul, norm, perp, dot, len, projectOnSegment, polyArea, polyCentroid,
   pointInPoly, wallOutline, wallLength, openingsOf, sortedStoreys, storeyOf, bbox,
 } from './model.js';
 import { A, emit, snapshot, deleteElements } from './state.js';
@@ -53,7 +53,7 @@ export class PlanEditor {
   gridStep() { const raw = 14 / this.v.s; for (const g of [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10]) if (g >= raw) return g; return 10; }
 
   // ---------------------------------------------------------------- prindere
-  storeyEls(id = A.storey) { return A.p.elements.filter((e) => e.storey === id || ((e.type === 'door' || e.type === 'window') && byId(A.p, e.wall)?.storey === id)); }
+  storeyEls(id = A.storey) { return A.p.elements.filter((e) => e.storey === id || (isOpening(e) && byId(A.p, e.wall)?.storey === id)); }
   snapPoint(raw, from, shift) {
     const tol = (this.touch ? 18 : 10) / this.v.s;
     const els = this.storeyEls();
@@ -121,12 +121,12 @@ export class PlanEditor {
   hit(p) {
     const tol = (this.touch ? 12 : 6) / this.v.s;
     const els = this.storeyEls();
-    const ord = (e) => ({ window: 0, door: 0, column: 1, wall: 2, beam: 3, footing: 3.5, dim: 4, zone: 6, roof: 7, slab: 8 }[e.type] ?? 9);
+    const ord = (e) => ({ window: 0, door: 0, gap: 0, column: 1, wall: 2, beam: 3, footing: 3.5, dim: 4, zone: 6, roof: 7, slab: 8 }[e.type] ?? 9);
     const hits = [];
     for (const e of els) {
       let ok = false, edge = false;
       if (e.type === 'wall') ok = pointInPoly(p, wallOutline(A.p, e));
-      else if (e.type === 'door' || e.type === 'window') {
+      else if (isOpening(e)) {
         const w = byId(A.p, e.wall);
         if (w) { const r = projectOnSegment(p, w.a, w.b); ok = r.d < w.thickness / 2 + tol && Math.abs(r.along - e.pos) < e.width / 2; }
       } else if (e.type === 'column') ok = Math.abs(p[0] - e.p[0]) < e.w / 2 + tol && Math.abs(p[1] - e.p[1]) < e.d / 2 + tol;
@@ -319,7 +319,8 @@ export class PlanEditor {
         if (e.shiftKey) { if (A.sel.has(h.id)) A.sel.delete(h.id); else A.sel.add(h.id); } else if (!A.sel.has(h.id)) { A.sel.clear(); A.sel.add(h.id); }
         emit('sel');
         const snap0 = this.snapPoint(p);
-        this.drag = { kind: 'move', start: snap0.p, raw0: p, ids: [...A.sel], orig: JSON.stringify(A.p.elements), moved: false, ignore: new Set(A.sel) };
+        const linked = linkedEnds(A.sel);
+        this.drag = { kind: 'move', start: snap0.p, raw0: p, ids: [...A.sel], orig: JSON.stringify(A.p.elements), moved: false, ignore: new Set([...A.sel, ...linked.map((l) => l.id)]), linked };
       } else {
         if (!e.shiftKey) { A.sel.clear(); emit('sel'); }
         this.drag = { kind: 'box', a: p, b: p };
@@ -340,6 +341,7 @@ export class PlanEditor {
         g.e.offset = dot(sub(s.p, g.e.a), perp(dir));
       } else if (typeof g.key === 'number') g.e.pts[g.key] = s.p.slice();
       else { g.e[g.key] = s.p.slice(); for (const [o, k] of d.linked) o[k] = s.p.slice(); }
+      syncFootings();
       emit('model');
       return;
     }
@@ -353,7 +355,7 @@ export class PlanEditor {
       for (const id of d.ids) {
         const el = byId(A.p, id), o = orig.get(id);
         if (!el || !o) continue;
-        if (el.type === 'door' || el.type === 'window') {
+        if (isOpening(el)) {
           if (d.ids.includes(el.wall)) continue;
           const w = byId(A.p, el.wall);
           const r = projectOnSegment(s.p, w.a, w.b);
@@ -365,6 +367,8 @@ export class PlanEditor {
         if (o.p) el.p = add(o.p, delta);
         if (o.pts) el.pts = o.pts.map((q) => add(q, delta));
       }
+      for (const l of d.linked) { const el = byId(A.p, l.id); if (el) el[l.key] = add(l.orig, delta); }
+      syncFootings();
       emit('model');
       return;
     }
@@ -387,7 +391,7 @@ export class PlanEditor {
       if (b.x1 - b.x0 > 4 / this.v.s || b.y1 - b.y0 > 4 / this.v.s) {
         for (const el of this.storeyEls()) {
           let pts = el.pts || [el.a, el.b, el.p].filter(Boolean);
-          if (el.type === 'door' || el.type === 'window') { const w = byId(A.p, el.wall); if (!w) continue; const dir = norm(sub(w.b, w.a)); pts = [add(w.a, mul(dir, el.pos))]; }
+          if (isOpening(el)) { const w = byId(A.p, el.wall); if (!w) continue; const dir = norm(sub(w.b, w.a)); pts = [add(w.a, mul(dir, el.pos))]; }
           if (pts.length && pts.every((q) => q[0] >= b.x0 && q[0] <= b.x1 && q[1] >= b.y0 && q[1] <= b.y1)) A.sel.add(el.id);
         }
         emit('sel');
@@ -410,7 +414,7 @@ export class PlanEditor {
   click0(p, raw) {
     const t = A.tool, D = A.defaults[t];
     if (t === 'column') { snapshot(); const el = addElement(A.p, { type: 'column', storey: A.storey, p, ...D }); this.selectOnly(el); return; }
-    if (t === 'door' || t === 'window') { this.placeOpening(raw); return; }
+    if (t === 'door' || t === 'window' || t === 'gap') { this.placeOpening(raw); return; }
     if (t === 'zone' && D.mode === 'auto') { this.autoZone(raw); return; }
     if (t === 'slab' && D.mode === 'auto') { this.autoZone(raw, 'slab'); return; }
     this.place(p);
@@ -595,7 +599,7 @@ export class PlanEditor {
       slab: A.defaults.slab.mode === 'auto' ? 'Clic în interiorul pereților pentru placă' : pts.length ? 'Clic pe colțul opus / următorul punct' : 'Clic pentru primul colț',
       zone: A.defaults.zone.mode === 'auto' ? 'Clic în interiorul unei camere – conturul se detectează din pereți' : pts.length ? 'Clic pe colțul opus / următorul punct' : 'Clic pentru primul colț',
       roof: pts.length ? 'Clic pe colțul opus / următorul punct' : 'Clic pentru primul colț al acoperișului (cu streașina)',
-      door: 'Clic pe un perete · partea pe care ești alege sensul de deschidere', window: 'Clic pe un perete',
+      door: 'Clic pe un perete · partea pe care ești alege sensul de deschidere', window: 'Clic pe un perete', gap: 'Clic pe un perete pentru gol (cu buiandrug deasupra)',
       column: 'Clic pentru poziția stâlpului', dim: ['Clic pe primul punct', 'Clic pe al doilea punct', 'Clic pentru poziția liniei de cotă'][pts.length] || '',
       select: 'Clic pe element · Shift pentru mai multe · trage pentru a muta · Delete pentru ștergere',
     };
@@ -632,8 +636,9 @@ export class PlanEditor {
     const walls = by('wall');
     for (const w of walls) this.poly(wallOutline(A.p, w), null, A.sel.has(w.id) ? SEL : INK, A.sel.has(w.id) ? 3 : 2);
     for (const w of walls) this.paintWallLayers(w);
-    for (const e of els) if (e.type === 'door' || e.type === 'window') this.paintOpening(e, selected(e));
-    if (this.v.s > 18) { const marks = openingMarks(A.p); for (const e of els) if (e.type === 'door' || e.type === 'window') this.paintMark(e, marks.get(e.id)); }
+    for (const e of els) if (isOpening(e)) this.paintOpening(e, selected(e));
+    for (const e of by('beam')) this.paintPads(e, selected(e));
+    if (this.v.s > 18) { const marks = openingMarks(A.p); for (const e of els) if (isOpening(e)) this.paintMark(e, marks.get(e.id)); }
     for (const e of by('column')) this.paintColumn(e, selected(e));
     for (const e of by('dim')) this.paintDim(e, selected(e));
     if (A.showLoads && A.loads) this.paintLoads();
@@ -746,7 +751,7 @@ export class PlanEditor {
     c.font = '600 11px system-ui, sans-serif';
     const w = Math.max(c.measureText(txt).width, this.v.s > 35 ? c.measureText(sub2).width : 0) + 10;
     const h = this.v.s > 35 ? 28 : 16;
-    c.fillStyle = '#fff'; c.strokeStyle = e.type === 'window' ? '#1f6fb2' : '#8a5a2b'; c.lineWidth = 1;
+    c.fillStyle = '#fff'; c.strokeStyle = e.type === 'window' ? '#1f6fb2' : e.type === 'gap' ? '#5b6472' : '#8a5a2b'; c.lineWidth = 1;
     c.beginPath(); c.roundRect ? c.roundRect(x - w / 2, y - h / 2, w, h, 4) : c.rect(x - w / 2, y - h / 2, w, h); c.fill(); c.stroke();
     c.fillStyle = c.strokeStyle; c.textAlign = 'center';
     c.fillText(txt, x, y + (h > 16 ? -2 : 4));
@@ -811,6 +816,16 @@ export class PlanEditor {
     for (const s of [1, -1]) { const [x0, y0] = this.toScreen(add(e.a, mul(n, s))), [x1, y1] = this.toScreen(add(e.b, mul(n, s))); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
     c.setLineDash([]);
   }
+  // cuzineți sub capete (în miezul peretelui de reazem) – desenați peste pereți
+  paintPads(e, sel) {
+    if (e.padA > 0) for (const sup of beamEndSupports(A.p, e)) {
+      if (!sup || sup.e.type !== 'wall') continue;
+      const w = sup.e, core = wallCore(w), wd = norm(sub(w.b, w.a)), wn = perp(wd);
+      const r = projectOnSegment(sup.pt, w.a, w.b), m = add(w.a, mul(wd, r.along));
+      const q = (u, v) => add(add(m, mul(wd, u)), mul(wn, v));
+      this.poly([q(-e.padA / 2, core.lo), q(e.padA / 2, core.lo), q(e.padA / 2, core.hi), q(-e.padA / 2, core.hi)], 'rgba(120,130,145,.55)', sel ? SEL : '#4a5363', 1.2);
+    }
+  }
   paintColumn(e, sel) {
     const pr = e.profile && profileByName(e.profile);
     if (pr) {
@@ -844,7 +859,13 @@ export class PlanEditor {
     // glafuri
     line(add(c0, mul(n, h)), sub(c0, mul(n, h)), col, 1.5);
     line(add(c1, mul(n, h)), sub(c1, mul(n, h)), col, 1.5);
-    if (e.type === 'window') {
+    if (e.type === 'gap') {
+      // gol fără tâmplărie: buiandrugul de deasupra se arată punctat
+      c.setLineDash([6, 4]);
+      line(add(c0, mul(n, h)), add(c1, mul(n, h)), col, 1);
+      line(sub(c0, mul(n, h)), sub(c1, mul(n, h)), col, 1);
+      c.setLineDash([]);
+    } else if (e.type === 'window') {
       line(add(c0, mul(n, h * 0.35)), add(c1, mul(n, h * 0.35)), col, 1);
       line(sub(c0, mul(n, h * 0.35)), sub(c1, mul(n, h * 0.35)), col, 1);
       line(c0, c1, col, 1);
@@ -891,7 +912,7 @@ export class PlanEditor {
     if (!s || t === 'select') return;
     const pts = this.draw?.pts || [];
     const D = A.defaults[t];
-    if ((t === 'door' || t === 'window') && this.mouse) {
+    if ((t === 'door' || t === 'window' || t === 'gap') && this.mouse) {
       const o = this.openingPreview(this.mouse);
       if (o) {
         const fake = { type: t, wall: o.wall.id, pos: o.pos, ...D, flip: o.flip };
@@ -954,6 +975,29 @@ export class PlanEditor {
         c.fillStyle = color(r.util); c.fillText(txt, x + 12, y - 5);
       }
     }
+  }
+}
+
+// Capetele pereților (neselectați) care ating capetele pereților selectați – se întind la mutare
+export function linkedEnds(sel) {
+  const ids = new Set(sel);
+  const out = [];
+  for (const id of ids) {
+    const w = byId(A.p, id);
+    if (!w || w.type !== 'wall') continue;
+    for (const o of A.p.elements) {
+      if (o.type !== 'wall' || ids.has(o.id) || o.storey !== w.storey) continue;
+      for (const k of ['a', 'b']) if (dist(o[k], w.a) < 0.01 || dist(o[k], w.b) < 0.01) out.push({ id: o.id, key: k, orig: o[k].slice() });
+    }
+  }
+  return out;
+}
+// Fundațiile generate sub pereți urmăresc pereții
+export function syncFootings() {
+  for (const f of A.p.elements) {
+    if (f.type !== 'footing' || !f.wall) continue;
+    const w = byId(A.p, f.wall);
+    if (w) { f.a = w.a.slice(); f.b = w.b.slice(); }
   }
 }
 
