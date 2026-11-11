@@ -49,6 +49,7 @@ Aplicație web de proiectare BIM pentru calculator, iPad și telefon. Se instale
 - **Export PDF al planului de stabilitate** (butonul *PDF* din modul Stabilitate): câte o planșă A3 la scară (1:50 / 1:100 / 1:200, aleasă automat) pentru fiecare nivel, cu chenar, cartuș, legendă și scară grafică. Fără biblioteci externe.
 - **Metraj structură în Excel** (butonul *Excel* din modul Stabilitate sau din Antemăsurătoare): foaia *Structură* listează fiecare fundație, stâlp, grindă, buiandrug, cuzinet, placă și perete de beton cu beton, cofraj, armătură estimată, oțel profile și lemn, cu totaluri prin formule.
 - **Profil la grinzi și stâlpi** în panoul din dreapta: alegerea materialului *Oțel* pune automat cel mai apropiat profil (IPE la grinzi, HEB la stâlpi), iar elementul capătă forma profilului în 3D.
+- **Limba interfeței: română sau franceză** (comutatorul RO / FR din bara de sus). În franceză se traduc interfața, verificările de calcul, planul, planșele PDF și exporturile Excel / CSV (avant-métré).
 - **Mutarea pereților**: prin tragere sau exact, cu „Mută cu…” (Δx, Δy) și „Decalează…” (paralel). Pereții legați de capete se întind ca să rămână lipiți; golurile și fundația merg odată cu peretele.
 - **Export IFC4** (pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri, spații, materiale, Pset-uri, cantități) pentru ARCHICAD, Revit, Allplan etc. Butonul **Model 3D** deschide modelul direct în vizualizator.
 - **Pe iPad și telefon**:

@@ -1,4 +1,5 @@
 // BIM Studio – Proiectare: interfața aplicației (unelte, proprietăți, niveluri, cantități, sarcini, export).
+import { LANG, setLang, t } from './i18n.js'; // primul: traducerea trebuie pornită înaintea interfeței
 import { MATERIALS, USES, TYPE_NAMES, COMPOSITES, FINISH, newProject, sampleProject, quantities, byId, sortedStoreys, storeyOf, polyArea, compositeThickness, coreMaterial, generateFootings, openingMarks, lintelOf, beamEndSupports, wallCore, LINTEL_BEARING } from './model.js';
 import { PROFILES, profileByName } from './design.js';
 import { A, emit, on, snapshot, undo, redo, deleteElements } from './state.js';
@@ -8,6 +9,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (v, d = 2) => (v == null || Number.isNaN(v) ? '—' : Number(v).toLocaleString('ro-RO', { minimumFractionDigits: d, maximumFractionDigits: d }));
 let toastT;
+void t;
 function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
 
 // ---------------------------------------------------------------- încărcare / salvare locală
@@ -427,6 +429,9 @@ function setView(v) {
 $('#views').onclick = (e) => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); };
 $('#b-fit').onclick = () => plan.fit();
 $('#b-fit3d').onclick = () => view3d?.fit();
+// limba interfeței
+for (const b of document.querySelectorAll('#lang [data-lang]')) b.classList.toggle('on', b.dataset.lang === LANG);
+$('#lang').onclick = (e) => { const b = e.target.closest('[data-lang]'); if (b && b.dataset.lang !== LANG) { try { localStorage.setItem(KEY, JSON.stringify(A.p)); } catch { /* */ } setLang(b.dataset.lang); } };
 $('#c-grid').onchange = (e) => { plan.gridSnap = e.target.checked; };
 // plan de arhitectură / plan de stabilitate
 function setPlanMode(m) {
@@ -533,12 +538,12 @@ $('#page-close').onclick = () => { $('#page').hidden = true; pageKind = null; };
 
 function csvDownload(name, rows) {
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const blob = new Blob(['﻿' + rows.map((r) => r.map((v) => q(typeof v === 'number' ? fmt(v) : v)).join(';')).join('\n')], { type: 'text/csv' });
+  const blob = new Blob(['﻿' + rows.map((r) => r.map((v) => q(typeof v === 'number' ? fmt(v) : t(v))).join(';')).join('\n')], { type: 'text/csv' });
   download(blob, name);
 }
 function download(blob, name) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name;
+  a.href = URL.createObjectURL(blob); a.download = t(name);
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
