@@ -202,3 +202,10 @@ dialog .tbl .field { max-width: 30vw; }
 .tbl.boq th:nth-child(4), .tbl.boq td:nth-child(4) { width: 50px; }
 .tbl.boq th:nth-child(5), .tbl.boq td:nth-child(5) { width: 100px; }
 .tbl.boq th:nth-child(7), .tbl.boq td:nth-child(7) { width: 120px; }
+/* dimensionare grinzi */
+.beam.card { margin-bottom: 12px; }
+.beam.card header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.beam.card header .mini { margin-left: auto; }
+.opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.opt { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: var(--surface); }
+.opt .small { margin-top: 2px; }

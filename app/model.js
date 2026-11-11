@@ -307,6 +307,19 @@ export function takeoff(p) {
 }
 
 // Proiect exemplu: casă P+1 mică, desenată cu aceleași unelte
+// Cota fețelor superioare a grinzii: grinzile de beton sunt înglobate în placă (fața de sus = cota nivelului următor);
+// cele din oțel și lemn stau sub placa de deasupra.
+export function beamTop(p, e) {
+  const s = storeyOf(p, e);
+  let top = s.elev + s.height;
+  if (e.profile || e.material === 'lemn' || e.material === 'otel') {
+    const mid = [(e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2];
+    const slab = p.elements.find((x) => x.type === 'slab' && Math.abs(storeyOf(p, x).elev + (x.offset || 0) - top) < 0.05 && pointInPoly(mid, x.pts));
+    if (slab) top -= slab.thickness;
+  }
+  return top;
+}
+
 // Fundații continue sub pereții portanți ai nivelului cel mai de jos (și blocuri sub stâlpi).
 // widths: lățimi calculate (id perete -> B în m), de ex. din calculul de sarcini.
 export function generateFootings(p, widths = {}) {

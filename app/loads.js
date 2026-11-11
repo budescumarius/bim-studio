@@ -4,6 +4,7 @@
 //  - ariile aferente ale plăcilor se împart pe reazemul cel mai apropiat (perete portant, grindă sau stâlp);
 //  - încărcările coboară nivel cu nivel până la fundații; combinația SLU: γG·G + γQ·Q (6.10), SLS caracteristică: G + Q.
 // NU include seismul (P100-1), vântul, excentricitățile, flambajul detaliat sau armarea. Nu înlocuiește proiectul de rezistență.
+import { profileByName } from './design.js';
 import { MATERIALS, USES, layersOf, sortedStoreys, storeyOf, wallLength, openingsOf, projectOnSegment, polyArea, pointInPoly, bbox, dist, sub, norm, dot } from './model.js';
 
 // greutatea pe m² a unui element pe straturi (kN/m²) și grosimea structurală
@@ -84,14 +85,15 @@ export function computeLoads(p) {
     for (const bm of els(s, (e) => e.type === 'beam')) {
       const r = res(bm);
       const L = dist(bm.a, bm.b);
-      r.self = (MATERIALS[bm.material]?.gamma || 25) * bm.w * bm.h * L;
+      const prof = bm.profile && profileByName(bm.profile);
+      r.self = prof ? prof.G * 9.81 / 1000 * L : (MATERIALS[bm.material]?.gamma || 25) * bm.w * bm.h * L;
       r.G += r.self;
       r.L = L;
       r.qEd = (P.gG * r.G + P.gQ * r.Q) / Math.max(L, 0.01);
       r.MEd = r.qEd * L * L / 8;
       r.VEd = r.qEd * L / 2;
       const kind = MATERIALS[bm.material]?.kind;
-      if (kind === 'beton') {
+      if (kind === 'beton' && !prof) {
         const hmin = L / 12;
         r.util = hmin / bm.h;
         r.checks.push(`h = ${(bm.h * 100).toFixed(0)} cm; recomandat ≥ L/12 = ${(hmin * 100).toFixed(0)} cm`);
