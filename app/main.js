@@ -184,7 +184,7 @@ const FIELDS = {
 };
 // după schimbarea structurii: grosimea și materialul structural urmează straturile
 function applyComposite(el, k) {
-  if (el.type === 'beam' && el.profile && (k === 'w' || k === 'h' || k === 'material')) { delete el.profile; delete el.grade; }
+  if ((el.type === 'beam' || el.type === 'column') && el.profile && (k === 'w' || k === 'h' || k === 'd' || k === 'material')) { delete el.profile; delete el.grade; }
   if (k === 'composite' && el.composite) { el.thickness = compositeThickness(el.composite); el.material = coreMaterial(el); }
   if (k === 'thickness' && el.composite && Math.abs(el.thickness - compositeThickness(el.composite)) > 1e-6) el.composite = '';
 }
@@ -242,6 +242,7 @@ function renderSide() {
   side.innerHTML = `<h3>${esc(title)}</h3>
     ${type ? `<div class="form" id="form">${FIELDS[type].map((f) => fieldHtml(f, sel.every((e) => e[f[0]] === first[f[0]]) ? first[f[0]] : (f[2] === 'chk' ? false : ''), false)).join('')}</div>` : '<p class="hint">Elemente de tipuri diferite: le poți muta, copia sau șterge împreună.</p>'}
     ${q && Object.keys(q).length ? `<h4>Cantități</h4><table class="kv"><tbody>${Object.entries(q).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${sel.length === 1 && first.type === 'column' ? `<h4>Secțiune</h4><p class="hint">${first.profile ? `<b>${esc(first.profile)} ${esc(first.grade || '')}</b>` : `${esc(MATERIALS[first.material]?.name || '')} ${Math.round(first.w * 100)}×${Math.round(first.d * 100)} cm`}${first.rebar && !first.profile && first.material === 'beton' ? `<br>${esc(first.rebar)}` : ''}</p><button class="btn primary" id="s-design-col">Dimensionează stâlpul</button>` : ''}
     ${sel.length === 1 && first.type === 'beam' ? `<h4>Secțiune</h4><p class="hint">${first.profile ? `<b>${esc(first.profile)} ${esc(first.grade || '')}</b>` : `${esc(MATERIALS[first.material]?.name || '')} ${Math.round(first.w * 100)}×${Math.round(first.h * 100)} cm`}${first.rebar && !first.profile && first.material === 'beton' ? `<br>${esc(first.rebar)}` : ''}</p><button class="btn primary" id="s-design">Dimensionează grinda</button>` : ''}
     ${loadInfo(sel)}
     <div class="acts"><button class="btn" id="s-dup" title="Ctrl+D">Copiază alături</button><button class="btn danger" id="s-del">Șterge</button></div>`;
@@ -256,6 +257,7 @@ function renderSide() {
   $('#s-del').onclick = () => { snapshot(); deleteElements([...A.sel]); emit('model'); };
   $('#s-dup').onclick = duplicate;
   if ($('#s-design')) $('#s-design').onclick = openBeams;
+  if ($('#s-design-col')) $('#s-design-col').onclick = openColumns;
 }
 function loadInfo(sel) {
   if (!A.loads || sel.length !== 1) return '';
@@ -478,15 +480,20 @@ $('#b-qty').onclick = openQty;
 $('#b-qty').textContent = 'Antemăsurătoare';
 
 let beamGrade = 'S235';
+let colBeta = 1.0;
+// gradul de utilizare: verde = verifică (≤ 90%), portocaliu = aproape de limită (90–100%), roșu = nu verifică
+const upill = (u) => `<span class="pill ${u <= 0.9 ? 'ok' : u <= 1 ? 'warn' : 'bad'}" title="Grad de utilizare = efort de calcul / capacitate">${Math.round(u * 100)}%</span>`;
+const UTIL_NOTE = '<p class="small" style="margin:0 0 10px"><b>Procentul</b> este gradul de utilizare: efortul de calcul împărțit la capacitatea elementului, la verificarea care decide (de ex. M<sub>Ed</sub> / M<sub>Rd</sub> sau săgeata / săgeata admisă). Sub 100% = verifică; 70–95% = secțiune folosită eficient; un procent mic = secțiune supradimensionată.</p>';
+const designTabs = (on) => `<div class="seg qtabs" style="margin-bottom:12px"><button data-dtab="beams" class="${on === 'beams' ? 'on' : ''}">Grinzi</button><button data-dtab="cols" class="${on === 'cols' ? 'on' : ''}">Stâlpi</button></div>`;
 async function openBeams() {
   const { computeLoads } = await import('./loads.js');
   const { designBeams } = await import('./design.js');
   A.loads = computeLoads(A.p);
   const rows = designBeams(A.p, A.loads, beamGrade);
-  const pct = (u) => pill(u);
+  const pct = (u) => upill(u);
   const opt = (x, kind, label, detail) => x ? `<div class="opt"><div><b>${esc(label)}</b> ${pct(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div><button class="btn" data-apply="${kind}" data-beam="${x._id}" data-name="${esc(x.name)}">Aplică</button></div>` : `<div class="opt"><div class="small">${esc(label)}: nicio secțiune din listă nu verifică</div></div>`;
-  const html = `<div class="notice"><b>Dimensionare orientativă (predimensionare).</b> Grinzi simplu rezemate cu încărcare uniformă din calculul de sarcini, combinația SLU 6.10 (γG = ${A.loads.params.gG}, γQ = ${A.loads.params.gQ}) și săgeată ≤ L/250 sub încărcarea caracteristică. Oțel: SR EN 1993-1-1, secțiuni clasa 1–2, talpa comprimată legată de placă. Beton: C25/30, BST500S, SR EN 1992-1-1. Lemn: GL24h, SR EN 1995-1-1. Nu include seismul, torsiunea, încărcările concentrate și verificarea îmbinărilor – proiectul de rezistență se face de un inginer atestat.</div>
-    <div class="params" style="grid-template-columns:auto 1fr;align-items:center"><label style="flex-direction:row;align-items:center;gap:8px">Oțel <select id="bgrade"><option ${beamGrade === 'S235' ? 'selected' : ''}>S235</option><option ${beamGrade === 'S355' ? 'selected' : ''}>S355</option></select></label><span class="small">Pentru fiecare familie se alege cel mai ușor profil care verifică toate condițiile. „Aplică” schimbă grinda din model (și în 3D, antemăsurătoare și IFC).</span></div>
+  const html = designTabs('beams') + `<div class="notice"><b>Dimensionare orientativă (predimensionare).</b> Grinzi simplu rezemate cu încărcare uniformă din calculul de sarcini, combinația SLU 6.10 (γG = ${A.loads.params.gG}, γQ = ${A.loads.params.gQ}) și săgeată ≤ L/250 sub încărcarea caracteristică. Oțel: SR EN 1993-1-1, secțiuni clasa 1–2, talpa comprimată legată de placă. Beton: C25/30, BST500S, SR EN 1992-1-1. Lemn: GL24h, SR EN 1995-1-1. Nu include seismul, torsiunea, încărcările concentrate și verificarea îmbinărilor – proiectul de rezistență se face de un inginer atestat.</div>
+    ${UTIL_NOTE}<div class="params" style="grid-template-columns:auto 1fr;align-items:center"><label style="flex-direction:row;align-items:center;gap:8px">Oțel <select id="bgrade"><option ${beamGrade === 'S235' ? 'selected' : ''}>S235</option><option ${beamGrade === 'S355' ? 'selected' : ''}>S355</option></select></label><span class="small">Pentru fiecare familie se alege cel mai ușor profil care verifică toate condițiile. „Aplică” schimbă grinda din model (și în 3D, antemăsurătoare și IFC).</span></div>
     ${rows.length ? rows.map((r) => {
       for (const x of [...r.steel, r.concrete, r.timber]) if (x) x._id = r.id;
       const cur = r.el.profile ? `${r.el.profile} ${r.el.grade || ''}` : `${MATERIALS[r.el.material]?.name || r.el.material} ${Math.round(r.el.w * 100)}×${Math.round(r.el.h * 100)} cm`;
@@ -499,10 +506,12 @@ async function openBeams() {
           ${opt(r.timber, 'timber', r.timber ? r.timber.name : 'Lemn lamelar GL24h', '')}
         </div></section>`;
     }).join('') : '<div class="empty">Proiectul nu are grinzi. Desenează una cu unealta Grindă (B), între doi stâlpi sau pereți portanți.</div>'}`;
-  openPage('beams', 'Dimensionare grinzi', html);
+  openPage('beams', 'Dimensionare structură', html);
   const pb = $('#page-body');
   pb.onchange = (e) => { if (e.target.id === 'bgrade') { beamGrade = e.target.value; openBeams(); } };
   pb.onclick = (e) => {
+    const t = e.target.closest('[data-dtab]');
+    if (t) { if (t.dataset.dtab === 'cols') openColumns(); return; }
     const g = e.target.closest('[data-goto]');
     if (g) { selectFromPage(g.dataset.goto); return; }
     const b = e.target.closest('[data-apply]');
@@ -523,6 +532,60 @@ async function openBeams() {
     emit('model');
     toast(`${r.name}: ${b.dataset.name} aplicat`);
     openBeams();
+  };
+}
+
+async function openColumns() {
+  const { computeLoads } = await import('./loads.js');
+  const { designColumns } = await import('./design.js');
+  A.loads = computeLoads(A.p);
+  const rows = designColumns(A.p, A.loads, beamGrade, colBeta);
+  const opt = (x, kind, label, detail) => x ? `<div class="opt"><div><b>${esc(label)}</b> ${upill(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div><button class="btn" data-apply="${kind}" data-col="${x._id}" data-name="${esc(x.name)}">Aplică</button></div>` : `<div class="opt"><div class="small">${esc(label)}: nicio secțiune din listă nu verifică</div></div>`;
+  const html = designTabs('cols') + `<div class="notice"><b>Dimensionare orientativă (predimensionare).</b> Stâlpi comprimați centric, cu forța axială din coborârea încărcărilor (SLU 6.10). Oțel: flambaj după ambele axe, curbe b / c, SR EN 1993-1-1. Beton C25/30: compresiune cu excentricitate minimă, imperfecțiuni și efecte de ordinul 2 (curbură nominală), armare minimă 1% și ν ≤ 0,40 (P100-1), SR EN 1992-1-1. Lemn GL24h: flambaj, SR EN 1995-1-1. Nu include momentele din cadre, seismul și verificarea îmbinărilor – proiectul de rezistență se face de un inginer atestat.</div>
+    ${UTIL_NOTE}<div class="params" style="grid-template-columns:auto auto 1fr;align-items:center">
+      <label style="flex-direction:row;align-items:center;gap:8px">Oțel <select id="bgrade"><option ${beamGrade === 'S235' ? 'selected' : ''}>S235</option><option ${beamGrade === 'S355' ? 'selected' : ''}>S355</option></select></label>
+      <label style="flex-direction:row;align-items:center;gap:8px">Lungime de flambaj <select id="cbeta"><option value="1" ${colBeta === 1 ? 'selected' : ''}>1,0·H – articulat la ambele capete</option><option value="0.7" ${colBeta === 0.7 ? 'selected' : ''}>0,7·H – încastrat jos, articulat sus</option><option value="0.5" ${colBeta === 0.5 ? 'selected' : ''}>0,5·H – încastrat la ambele capete</option><option value="2" ${colBeta === 2 ? 'selected' : ''}>2,0·H – consolă (liber sus)</option></select></label>
+      <span class="small">Pentru fiecare familie se alege cel mai ușor profil care verifică.</span></div>
+    ${rows.length ? rows.map((r) => {
+      for (const x of [...r.steel, r.concrete, r.timber]) if (x) x._id = r.id;
+      const cur = r.el.profile ? `${r.el.profile} ${r.el.grade || ''}` : `${MATERIALS[r.el.material]?.name || r.el.material} ${Math.round(r.el.w * 100)}×${Math.round(r.el.d * 100)} cm`;
+      return `<section class="beam card"><header><b>${esc(r.name)}</b> · ${esc(r.storey)} · H = ${fmt(r.H)} m · G<sub>k</sub> = ${fmt(r.G, 1)} kN (fără greutatea proprie) · Q<sub>k</sub> = ${fmt(r.Q, 1)} kN <span class="small">· acum: ${esc(cur)}</span>
+        <button class="mini" data-goto="${r.id}">Arată pe plan</button></header>
+        <div class="opts">
+          ${r.steel.map((x) => opt(x, 'steel', x.name, `${fmt(x.mass, 0)} kg pe stâlp · decide: ${x.governs}`)).join('')}
+          ${opt(r.concrete, 'concrete', r.concrete ? r.concrete.name : 'Beton armat', r.concrete ? `${r.concrete.rebar}; ${r.concrete.stirrups}` : '')}
+          ${opt(r.timber, 'timber', r.timber ? r.timber.name : 'Lemn lamelar GL24h', '')}
+        </div></section>`;
+    }).join('') : '<div class="empty">Proiectul nu are stâlpi. Desenează unul cu unealta Stâlp (C).</div>'}`;
+  openPage('beams', 'Dimensionare structură', html);
+  const pb = $('#page-body');
+  pb.onchange = (e) => {
+    if (e.target.id === 'bgrade') { beamGrade = e.target.value; openColumns(); }
+    if (e.target.id === 'cbeta') { colBeta = parseFloat(e.target.value); openColumns(); }
+  };
+  pb.onclick = (e) => {
+    const t = e.target.closest('[data-dtab]');
+    if (t) { if (t.dataset.dtab === 'beams') openBeams(); return; }
+    const g = e.target.closest('[data-goto]');
+    if (g) { selectFromPage(g.dataset.goto); return; }
+    const b = e.target.closest('[data-apply]');
+    if (!b) return;
+    const r = rows.find((x) => x.id === b.dataset.col);
+    const el = byId(A.p, r.id);
+    snapshot();
+    if (b.dataset.apply === 'steel') {
+      const x = r.steel.find((y) => y.name === b.dataset.name);
+      Object.assign(el, { material: 'otel', profile: x.profile, grade: x.grade, w: x.b, d: x.h });
+    } else if (b.dataset.apply === 'concrete') {
+      delete el.profile; delete el.grade;
+      Object.assign(el, { material: 'beton', w: r.concrete.b, d: r.concrete.h, rebar: `${r.concrete.rebar}; ${r.concrete.stirrups}` });
+    } else {
+      delete el.profile; delete el.grade;
+      Object.assign(el, { material: 'lemn', w: r.timber.b, d: r.timber.h });
+    }
+    emit('model');
+    toast(`${r.name}: ${b.dataset.name} aplicat`);
+    openColumns();
   };
 }
 
@@ -559,7 +622,7 @@ async function openLoads() {
         return g + `<tr class="click" data-id="${x.id}"><td>${esc(x.name)}</td><td class="n">${x.trib ? fmt(x.trib) + ' m²' : x.area ? fmt(x.area) + ' m²' : '—'}</td><td class="n">${fmt(x.G, 1)}</td><td class="n">${fmt(x.Q, 1)}</td><td class="n">${ned}</td>
           <td class="n">${x.util != null ? pill(x.util) : '—'}</td><td>${x.B ? (x.type === 'wall' ? 'talpă B ≥ ' : 'bloc ') + fmt(x.B * 100, 0) + ' cm' : x.onGround ? 'pe teren' : ''}</td><td class="small">${x.checks.map(esc).join('<br>')}</td></tr>`;
       }).join('')}</tbody></table></div>`;
-    openPage('loads', 'Calcul sarcini', html, '<button class="btn primary" id="ld-beams">Dimensionare grinzi</button> <button class="btn" id="ld-csv">Export CSV</button> <button class="btn" id="ld-plan">Arată pe plan</button> ');
+    openPage('loads', 'Calcul sarcini', html, '<button class="btn primary" id="ld-beams">Dimensionare grinzi și stâlpi</button> <button class="btn" id="ld-csv">Export CSV</button> <button class="btn" id="ld-plan">Arată pe plan</button> ');
     $('#ld-beams').onclick = openBeams;
     $('#lp').onchange = (e) => { const k = e.target.dataset.k; if (!k) return; snapshot(); A.p.loads[k] = parseFloat(e.target.value) || 0; autosave(); run(); draw(); };
     $('#ld-csv').onclick = () => csvDownload(`Sarcini - ${A.p.name}.csv`, [['Nivel', 'Element', 'Arie aferentă (m²)', 'G (kN)', 'Q (kN)', 'N_Ed (kN)', 'n_Ed (kN/m)', 'Utilizare (%)', 'Fundație (cm)', 'Verificări'],
@@ -599,6 +662,7 @@ $('#b-menu').onclick = () => {
     <button class="btn" value="storeys">Niveluri…</button>
     <button class="btn" value="footings">Generează fundațiile sub pereții portanți</button>
     <button class="btn" value="beams">Dimensionare grinzi (IPE / HEA / HEB, beton, lemn)</button>
+    <button class="btn" value="cols">Dimensionare stâlpi (HEA / HEB, beton, lemn)</button>
     <button class="btn" value="ifc">Export IFC (ARCHICAD, Revit…)</button>
     <button class="btn" value="open3d">Deschide în Model 3D</button>
     <a class="btn" href="viewer/" style="display:flex;align-items:center;text-decoration:none">Vizualizator 3D (IFC, BIMx)…</a>
@@ -618,6 +682,7 @@ $('#b-menu').onclick = () => {
     if (v === 'storeys') storeysDialog();
     if (v === 'footings') makeFootings();
     if (v === 'beams') openBeams();
+    if (v === 'cols') openColumns();
     if (v === 'ifc') $('#b-ifc').click();
     if (v === 'open3d') $('#b-open3d').click();
     if (v === 'save') download(new Blob([JSON.stringify(A.p, null, 1)], { type: 'application/json' }), `${A.p.name}.json`);

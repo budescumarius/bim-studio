@@ -134,11 +134,14 @@ export function computeLoads(p) {
         }
       } else {
         const A = e.w * e.d;
-        r.self = (m?.gamma || 25) * A * e.height;
+        const prc = e.profile && profileByName(e.profile);
+        r.self = prc ? prc.G * 9.81 / 1000 * e.height : (m?.gamma || 25) * A * e.height;
         r.G += r.self;
         r.NEd = P.gG * r.G + P.gQ * r.Q;
         r.nk = r.G + r.Q;
-        if (m?.kind === 'beton') {
+        if (prc) {
+          r.checks.push(`profil ${prc.name}: verificarea la flambaj se face la Dimensionare stâlpi`);
+        } else if (m?.kind === 'beton') {
           const nu = r.NEd / (A * m.fd * 1000);
           r.util = nu / 0.4;
           r.checks.push(`ν = N_Ed/(A·fcd) = ${nu.toFixed(2)}; limită recomandată 0,40 (ductilitate, P100-1)`);

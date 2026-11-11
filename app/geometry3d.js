@@ -127,6 +127,13 @@ export function elementGeometry(p, e) {
     }
     case 'column': {
       const h = e.height;
+      const pr = e.profile && profileByName(e.profile);
+      if (pr) {
+        // profil H: tălpile paralele cu axa x a planului, inima pe y
+        const B = pr.b / 1000, Hh = pr.h / 1000, tw = pr.tw / 1000, tf = pr.tf / 1000;
+        const parts = [new THREE.BoxGeometry(B, h, tf).translate(0, 0, Hh / 2 - tf / 2), new THREE.BoxGeometry(B, h, tf).translate(0, 0, -Hh / 2 + tf / 2), new THREE.BoxGeometry(tw, h, Hh - 2 * tf)];
+        return [{ geo: merge(parts).translate(e.p[0], z + h / 2, -e.p[1]), color: 0x6f7f95 }];
+      }
       const g = new THREE.BoxGeometry(e.w, h, e.d).translate(e.p[0], z + h / 2, -e.p[1]);
       return [{ geo: g, color: mat?.c3 || 0xbbbbbb }];
     }

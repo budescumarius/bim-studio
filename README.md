@@ -34,7 +34,13 @@ Aplicație web de proiectare BIM pentru calculator, iPad și telefon. Se instale
   - **oțel:** cel mai ușor **IPE, HEA și HEB** în S235 sau S355 (încovoiere, forfecare, săgeată L/250; SR EN 1993-1-1);
   - **beton armat C25/30:** secțiunea b × h, armătura de jos (n Ø) și etrierii (SR EN 1992-1-1);
   - **lemn lamelar GL24h:** secțiunea b × h (SR EN 1995-1-1).
-  Butonul „Aplică” schimbă grinda din model. Profilele de oțel apar cu secțiune I în 3D și ca `IfcIShapeProfileDef` în IFC, iar în antemăsurătoare se trec la kg.
+- **Dimensionarea stâlpilor**, din forța axială a coborârii încărcărilor. Propune:
+  - **HEA și HEB**, cu flambaj după ambele axe (SR EN 1993-1-1);
+  - **beton armat:** b × b, armătură longitudinală și etrieri; excentricitate minimă, ordinul 2 (curbură nominală), ν ≤ 0,40 și armare minimă 1% conform P100-1;
+  - **lemn GL24h**, cu flambaj.
+  Lungimea de flambaj se alege (1,0·H / 0,7·H / 0,5·H / 2,0·H).
+- **Procentul** de la fiecare variantă e gradul de utilizare: efortul de calcul / capacitatea, la verificarea care decide. Sub 100% = verifică.
+  Butonul „Aplică” schimbă grinda / stâlpul din model. Profilele de oțel apar cu secțiune I în 3D și ca `IfcIShapeProfileDef` în IFC, iar în antemăsurătoare se trec la kg.
 - **Export IFC4** (pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri, spații, materiale, Pset-uri, cantități) pentru ARCHICAD, Revit, Allplan etc. Butonul **Model 3D** deschide modelul direct în vizualizator.
 - **Pe iPad și telefon**:
   - Desenezi cu degetul sau cu Apple Pencil. Punctul se pune la ridicarea degetului și apare deasupra degetului, ca să-l vezi.

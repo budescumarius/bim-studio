@@ -43,6 +43,9 @@ export const PROFILES = {
   ]),
 };
 
+// moment de inerție față de axa slabă z (cm⁴), pentru stâlpi
+const IZ = { HEA: [134, 231, 389, 616, 925, 1336, 1955, 2769, 3668, 4763, 6310, 6985, 7436, 7887, 8564, 9465, 10370], HEB: [167, 318, 550, 889, 1363, 2003, 2843, 3923, 5135, 6595, 8563, 9239, 9690, 10140, 10820, 11720, 12620] };
+for (const f of ['HEA', 'HEB']) PROFILES[f].forEach((x, i) => { x.Iz = IZ[f][i]; });
 export const profileByName = (name) => Object.values(PROFILES).flat().find((x) => x.name === name);
 const E_STEEL = 210000; // MPa
 export const DEFLECTION = 250; // L/250 sub încărcarea caracteristică totală
@@ -164,6 +167,109 @@ export function designBeams(p, loads, grade = 'S235') {
     const warn = [];
     if (!r.trib) warn.push('Grinda nu preia direct o placă: verifică stabilitatea laterală (flambaj prin încovoiere-răsucire) la oțel.');
     out.push({ id: el.id, name: r.name, storey: r.storey, L, gk, qk, steel: fams, concrete: c, timber: t, warn, el });
+  }
+  return out;
+}
+
+
+// ------------------------------------------------------------------ stâlpi (compresiune centrică cu flambaj)
+// N_Ek: încărcare axială caracteristică la bază FĂRĂ greutatea proprie a stâlpului (G, Q în kN); H: înălțime (m); beta: coeficient de flambaj
+function steelColumn(G, Q, H, beta, grade, fam, P) {
+  const fy = grade === 'S355' ? 355 : 235;
+  const Lcr = beta * H * 1000; // mm
+  for (const s of PROFILES[fam]) {
+    const NEd = P.gG * (G + s.G * 9.81 / 1000 * H) + P.gQ * Q;
+    const A = s.A * 100; // mm²
+    const res = [];
+    for (const [axis, I, alpha] of [['y', s.Iy, 0.34], ['z', s.Iz, 0.49]]) { // curbe de flambaj b (y-y) și c (z-z), profile laminate h/b ≤ 1,2
+      const Ncr = Math.PI ** 2 * E_STEEL * I * 1e4 / (Lcr * Lcr); // N
+      const lam = Math.sqrt(A * fy / Ncr);
+      const phi = 0.5 * (1 + alpha * (lam - 0.2) + lam * lam);
+      const chi = Math.min(1, 1 / (phi + Math.sqrt(Math.max(0, phi * phi - lam * lam))));
+      res.push({ axis, lam, chi, NbRd: chi * A * fy / 1000 });
+    }
+    const gov = res[0].NbRd < res[1].NbRd ? res[0] : res[1];
+    const NplRd = A * fy / 1000;
+    const util = NEd / gov.NbRd;
+    if (util <= 1) {
+      return {
+        name: `${s.name} ${grade}`, profile: s.name, grade, b: s.b / 1000, h: s.h / 1000, mass: s.G * H, NEd, util,
+        governs: `flambaj după axa ${gov.axis}`,
+        checks: [`N_Ed = ${NEd.toFixed(1)} kN ≤ N_b,Rd = χ·A·fy = ${gov.NbRd.toFixed(1)} kN (axa ${gov.axis})`, `λ̄_y = ${res[0].lam.toFixed(2)}, λ̄_z = ${res[1].lam.toFixed(2)}; χ_z = ${res[1].chi.toFixed(2)}`, `N_pl,Rd = ${NplRd.toFixed(0)} kN; L_cr = ${(Lcr / 1000).toFixed(2)} m`],
+      };
+    }
+  }
+  return null;
+}
+
+function concreteColumn(G, Q, H, beta, P) {
+  // compresiune excentrică: e = max(h/30, 20 mm) + l0/400 (imperfecțiuni) + e2 (ordinul 2, metoda curburii nominale, Kr = Kφ = 1)
+  const fcd = 25 / 1.5, fyd = 500 / 1.15, eyd = fyd / 200000;
+  const l0 = beta * H;
+  for (let b = 0.30; b <= 0.80; b = Math.round((b + 0.05) * 100) / 100) {
+    const Ac = b * b, d = b - 0.05, d2 = 0.05;
+    const NEd = P.gG * (G + 25 * Ac * H) + P.gQ * Q; // kN
+    const n = NEd / 1000 / (Ac * fcd);
+    if (n > 0.4) continue; // limita P100-1 pentru ductilitate
+    const lam = l0 / (b / Math.sqrt(12));
+    const lamLim = 20 * 0.7 * 1.1 * 0.7 / Math.sqrt(Math.max(n, 0.05));
+    const e0 = Math.max(b / 30, 0.02) + l0 / 400;
+    const e2 = lam > lamLim ? (2 * eyd / (0.9 * d)) * l0 * l0 / 10 : 0;
+    const MEd = NEd * (e0 + e2); // kNm
+    // armătură simetrică (bloc rectangular de compresiune 0,8x, ambele rânduri de bare curg)
+    const x = NEd / 1000 / (0.8 * b * fcd); // m
+    if (x > d) continue;
+    const MRdConc = NEd * (b / 2 - 0.4 * x); // kNm
+    const AsSide = Math.max(0, (MEd - MRdConc) / 1000 / (fyd * (d - d2))) * 1e4; // cm² pe o latură
+    const AsNec = Math.max(2 * AsSide, 0.01 * Ac * 1e4); // minim 1% (P100-1)
+    if (AsNec > 0.04 * Ac * 1e4) continue;
+    let pick = null;
+    for (const nb of [4, 8, 12]) for (const D of [14, 16, 18, 20, 22, 25]) {
+      const a = nb * Math.PI * D * D / 400;
+      if (a >= AsNec && (!pick || a < pick.a - 0.01)) pick = { nb, D, a };
+    }
+    if (!pick) continue;
+    const MRd = MRdConc + (pick.a / 2) / 1e4 * fyd * 1000 * (d - d2);
+    return {
+      name: `Beton C25/30 ${Math.round(b * 100)}×${Math.round(b * 100)} cm`, b, h: b, NEd, util: Math.max(MEd / MRd, n / 0.4),
+      rebar: `${pick.nb}Ø${pick.D} (${pick.a.toFixed(2)} cm² ≥ ${AsNec.toFixed(2)} cm²)`, stirrups: 'etrieri Ø8/15 cm, Ø8/10 cm la capete (zone critice)',
+      checks: [`N_Ed = ${NEd.toFixed(1)} kN; ν = N_Ed/(A·fcd) = ${n.toFixed(2)} ≤ 0,40 (P100-1)`, `M_Ed = N·(e0 + ei${e2 ? ' + e2' : ''}) = ${MEd.toFixed(1)} kNm ≤ M_Rd = ${MRd.toFixed(1)} kNm`, `λ = ${lam.toFixed(1)} ${lam > lamLim ? '>' : '≤'} λ_lim = ${lamLim.toFixed(1)}${e2 ? ` → ordinul 2: e2 = ${(e2 * 1000).toFixed(0)} mm` : ''}`],
+    };
+  }
+  return null;
+}
+
+function timberColumn(G, Q, H, beta, P) {
+  const fcd = 0.8 * 24 / 1.25, E005 = 9600; // GL24h
+  const l0 = beta * H * 1000;
+  for (const b of [0.12, 0.14, 0.16, 0.18, 0.20, 0.24, 0.28, 0.32]) {
+    const A = b * b * 1e6;
+    const NEd = P.gG * (G + 4.2 * b * b * H) + P.gQ * Q;
+    const lam = l0 / (b * 1000 / Math.sqrt(12));
+    const lrel = lam / Math.PI * Math.sqrt(24 / E005);
+    const k = 0.5 * (1 + 0.1 * (lrel - 0.3) + lrel * lrel);
+    const kc = Math.min(1, 1 / (k + Math.sqrt(k * k - lrel * lrel)));
+    const sc = NEd * 1000 / A;
+    const util = sc / (kc * fcd);
+    if (util <= 1) return { name: `Lemn lamelar GL24h ${Math.round(b * 100)}×${Math.round(b * 100)} cm`, b, h: b, NEd, util, checks: [`σ_c = ${sc.toFixed(2)} MPa ≤ k_c·f_c,d = ${(kc * fcd).toFixed(2)} MPa`, `λ = ${lam.toFixed(0)}; k_c = ${kc.toFixed(2)}`] };
+  }
+  return null;
+}
+
+export function designColumns(p, loads, grade = 'S235', beta = 1.0) {
+  const P = loads.params;
+  const out = [];
+  for (const r of loads.items.filter((x) => x.type === 'column')) {
+    const el = p.elements.find((e) => e.id === r.id);
+    if (!el) continue;
+    const H = el.height;
+    const G = Math.max(0, r.G - r.self), Q = r.Q;
+    out.push({
+      id: el.id, name: r.name, storey: r.storey, H, G, Q, el,
+      steel: ['HEA', 'HEB'].map((f) => steelColumn(G, Q, H, beta, grade, f, P)).filter(Boolean),
+      concrete: concreteColumn(G, Q, H, beta, P), timber: timberColumn(G, Q, H, beta, P),
+      warn: r.foundation ? [] : [],
+    });
   }
   return out;
 }
