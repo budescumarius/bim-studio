@@ -1,7 +1,7 @@
 // Editorul de plan: desen cu mouse-ul, prindere (snap), introducere numerică a lungimilor,
 // selecție, mutare, editarea punctelor și detectarea automată a camerelor.
 import {
-  isOpening, lintelOf, wallCore, beamEndSupports, MATERIALS, USES, COMPOSITES, FINISH, layersOf, openingMarks, footingExtensions, addElement, byId, dist, sub, add, mul, norm, perp, dot, len, projectOnSegment, polyArea, polyCentroid,
+  isOpening, lintelOf, wallCore, beamEndSupports, LINTEL_BEARING as LINTEL_BEARING_, MATERIALS, USES, COMPOSITES, FINISH, layersOf, openingMarks, footingExtensions, addElement, byId, dist, sub, add, mul, norm, perp, dot, len, projectOnSegment, polyArea, polyCentroid,
   pointInPoly, wallOutline, wallLength, openingsOf, sortedStoreys, storeyOf, bbox,
 } from './model.js';
 import { A, emit, snapshot, deleteElements } from './state.js';
@@ -24,6 +24,7 @@ export class PlanEditor {
     this.drag = null;
     this.num = '';
     this.gridSnap = true;
+    this.mode = 'arh'; // 'arh' = plan de arhitectură, 'stab' = plan de stabilitate
     this.dirty = true;
     this.bind();
     new ResizeObserver(() => this.resize()).observe(canvas);
@@ -631,6 +632,14 @@ export class PlanEditor {
     const els = this.storeyEls();
     const by = (t) => els.filter((e) => e.type === t);
     const selected = (e) => A.sel.has(e.id);
+    if (this.mode === 'stab') this.paintStab(els, by, selected);
+    else this.paintArch(els, by, selected);
+    for (const e of by('dim')) this.paintDim(e, selected(e));
+    if (A.showLoads && A.loads) this.paintLoads();
+    this.paintTop();
+  }
+  // plan de arhitectură
+  paintArch(els, by, selected) {
     for (const e of by('slab')) this.poly(e.pts, e.use === 'A_bal' ? '#eef3ea' : '#f1f2f5', selected(e) ? SEL : '#b8bfcc', selected(e) ? 2 : 1);
     for (const e of by('zone')) this.paintZone(e, selected(e));
     for (const e of by('roof')) this.paintRoof(e, selected(e));
@@ -644,8 +653,10 @@ export class PlanEditor {
     for (const e of by('beam')) this.paintPads(e, selected(e));
     if (this.v.s > 18) { const marks = openingMarks(A.p); for (const e of els) if (isOpening(e)) this.paintMark(e, marks.get(e.id)); }
     for (const e of by('column')) this.paintColumn(e, selected(e));
-    for (const e of by('dim')) this.paintDim(e, selected(e));
-    if (A.showLoads && A.loads) this.paintLoads();
+  }
+  paintTop() {
+    const c = this.ctx;
+    const walls = this.storeyEls().filter((e) => e.type === 'wall');
     for (const w of walls) if (A.sel.has(w.id) && A.sel.size < 6) this.lengthLabel(w);
     // puncte de apucare
     for (const g of this.grips()) { const [x, y] = this.toScreen(this.gripPos(g)); c.fillStyle = '#fff'; c.strokeStyle = SEL; c.lineWidth = 1.5; c.fillRect(x - 4, y - 4, 8, 8); c.strokeRect(x - 4, y - 4, 8, 8); }
@@ -668,6 +679,101 @@ export class PlanEditor {
       c.fillStyle = 'rgba(232,89,12,.18)'; c.beginPath(); c.arc(fx, fy, 22, 0, Math.PI * 2); c.fill();
     }
     this.paintScale();
+  }
+  // ---------------------------------------------------------------- plan de stabilitate (rezistență)
+  // doar structura: miezul pereților portanți, stâlpi, grinzi, buiandrugi, cuzineți, plăci – cu secțiunile scrise
+  paintStab(els, by, selected) {
+    const c = this.ctx;
+    const label = (p, text, ang = 0, color = '#1d2b44', size = 11) => {
+      if (this.v.s < 14) return;
+      const [x, y] = this.toScreen(p);
+      c.save(); c.translate(x, y); let a = -ang; if (a > Math.PI / 2) a -= Math.PI; if (a < -Math.PI / 2) a += Math.PI; c.rotate(a);
+      c.font = `600 ${size}px system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineWidth = 4; c.strokeStyle = 'rgba(255,255,255,.92)'; c.strokeText(text, 0, 0); c.fillStyle = color; c.fillText(text, 0, 0);
+      c.restore();
+    };
+    const cm = (v) => Math.round(v * 100);
+    // plăci: contur, diagonale (simbolul de placă) și grosimea
+    for (const e of by('slab')) {
+      const sel = selected(e);
+      this.poly(e.pts, '#f4f6f9', sel ? SEL : '#8a94a6', sel ? 2 : 1);
+      const core = layersOf(e).filter((l) => ['beton', 'lemn', 'otel'].includes(MATERIALS[l.m]?.kind));
+      if (!core.length) continue;
+      const b = bbox(e.pts);
+      c.strokeStyle = '#c3c9d4'; c.lineWidth = 0.8; c.setLineDash([2, 4]);
+      for (const [p, q] of [[[b.x0, b.y0], [b.x1, b.y1]], [[b.x0, b.y1], [b.x1, b.y0]]]) { const [x0, y0] = this.toScreen(p), [x1, y1] = this.toScreen(q); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
+      c.setLineDash([]);
+      const t = core.reduce((a, l) => a + l.t, 0);
+      label(polyCentroid(e.pts), `${e.use === 'sol' ? 'Placă pe sol' : 'Placă'} ${MATERIALS[core[0].m]?.kind === 'beton' ? 'b.a.' : MATERIALS[core[0].m]?.name.toLowerCase()} h = ${cm(t)} cm`, 0, '#5b6472', 12);
+    }
+    for (const e of by('footing')) this.paintFooting(e, selected(e));
+    // pereți: cei neportanți doar conturați subțire, cei portanți cu miezul structural plin
+    const walls = by('wall');
+    for (const w of walls) if (!w.bearing) this.poly(wallOutline(A.p, w), '#fbfbfc', A.sel.has(w.id) ? SEL : '#b4bac6', A.sel.has(w.id) ? 2 : 0.8);
+    for (const w of walls) {
+      if (!w.bearing) continue;
+      const out = wallOutline(A.p, w), core = wallCore(w), n = perp(norm(sub(w.b, w.a)));
+      const a0 = mul(add(out[0], out[3]), 0.5), b0 = mul(add(out[1], out[2]), 0.5);
+      const strip = [add(a0, mul(n, core.lo)), add(b0, mul(n, core.lo)), add(b0, mul(n, core.hi)), add(a0, mul(n, core.hi))];
+      const m = MATERIALS[core.mat];
+      const sel = A.sel.has(w.id);
+      this.poly(strip, sel ? '#dbe6ff' : m?.kind === 'beton' ? '#9aa1ab' : m?.color || '#e7dcc6', sel ? SEL : INK, sel ? 2.5 : 1.6);
+      if (!sel && m?.kind === 'zidarie') this.hatch(strip, w);
+    }
+    // goluri: întrerup peretele; buiandrugul se arată punctat, cu secțiunea
+    for (const e of els) {
+      if (!isOpening(e)) continue;
+      const g = this.openingGeom(e);
+      if (!g) continue;
+      const { d, n, h, c0, c1 } = g;
+      this.poly([add(c0, mul(n, h + 0.005)), add(c1, mul(n, h + 0.005)), sub(c1, mul(n, h + 0.005)), sub(c0, mul(n, h + 0.005))], PAPER, null);
+      const lin = lintelOf(A.p, e);
+      const sel = selected(e) || A.sel.has(e.id + ':lintel');
+      if (!lin) continue;
+      const core = lin.core, ext = (q, s) => add(q, mul(d, s * LINTEL_BEARING_));
+      const p0 = ext(c0, -1), p1 = ext(c1, 1);
+      c.setLineDash([7, 4]); c.strokeStyle = sel ? SEL : '#c0392b'; c.lineWidth = sel ? 2 : 1.4;
+      for (const off of [core.lo, core.hi]) { const [x0, y0] = this.toScreen(add(p0, mul(n, off))), [x1, y1] = this.toScreen(add(p1, mul(n, off))); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
+      c.setLineDash([]);
+      const pr = lin.type === 'otel' && lin.profile;
+      const txt = pr ? `${(e.lintelN || 1) > 1 ? '2×' : ''}${lin.profile}` : `Bd ${cm(core.t)}×${cm(lin.h)}`;
+      label(add(mul(add(c0, c1), 0.5), mul(n, h + 0.2)), txt, Math.atan2(d[1], d[0]), '#c0392b', 10.5);
+    }
+    // grinzi (punctate, sunt deasupra planului de secțiune) și cuzineți
+    for (const e of by('beam')) {
+      this.paintBeam(e, selected(e));
+      this.paintPads(e, selected(e) || A.sel.has(e.id + ':pads'));
+      const d = norm(sub(e.b, e.a)), mid = mul(add(e.a, e.b), 0.5);
+      const sec = e.profile ? `${e.profile}${e.grade ? ' ' + e.grade : ''}` : `${MATERIALS[e.material]?.kind === 'lemn' ? 'lemn ' : ''}${cm(e.w)}×${cm(e.h)}`;
+      label(add(mid, mul(perp(d), e.w / 2 + 0.25)), `${e.id.toUpperCase()} · ${sec}`, Math.atan2(d[1], d[0]), '#1f4f99');
+      if (e.padA > 0) for (const s of beamEndSupports(A.p, e)) if (s && s.e.type === 'wall') label(add(s.pt, mul(d, s.pt === e.a ? -0.45 : 0.45)), `Cz ${cm(e.padA)}×${cm(e.padH || 0.2)}`, 0, '#4a5363', 9.5);
+    }
+    // stâlpi
+    for (const e of by('column')) {
+      this.paintColumn(e, selected(e));
+      const sec = e.profile ? e.profile : `${cm(e.w)}×${cm(e.d)}`;
+      label(add(e.p, [0, -Math.max(e.w, e.d) / 2 - 0.25]), `${e.id.toUpperCase()} · ${sec}`, 0, '#1d2b44');
+    }
+    this.paintLegend();
+  }
+  paintLegend() {
+    const c = this.ctx, s = storeyOf(A.p, { storey: A.storey });
+    const rows = [['wall', 'Perete portant (miez structural)'], ['thin', 'Perete neportant'], ['beam', 'Grindă (deasupra planului)'], ['lintel', 'Buiandrug  Bd l×h / profil'], ['col', 'Stâlp'], ['pad', 'Cuzinet  Cz a×h']];
+    const x = 12, y = 12, w = 238, h = 30 + rows.length * 18;
+    c.fillStyle = 'rgba(255,255,255,.94)'; c.strokeStyle = '#c9ced8'; c.lineWidth = 1;
+    c.fillRect(x, y, w, h); c.strokeRect(x + 0.5, y + 0.5, w, h);
+    c.fillStyle = '#1d2b44'; c.font = '700 12px system-ui, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+    c.fillText(`PLAN STABILITATE · ${s.name} (${s.elev >= 0 ? '+' : ''}${s.elev.toFixed(2)})`, x + 10, y + 19);
+    rows.forEach(([k, t], i) => {
+      const yy = y + 34 + i * 18, sx = x + 12;
+      c.setLineDash([]);
+      if (k === 'wall') { c.fillStyle = '#e7dcc6'; c.fillRect(sx, yy - 5, 26, 9); c.strokeStyle = INK; c.lineWidth = 1.4; c.strokeRect(sx, yy - 5, 26, 9); }
+      if (k === 'thin') { c.fillStyle = '#fbfbfc'; c.fillRect(sx, yy - 4, 26, 7); c.strokeStyle = '#b4bac6'; c.lineWidth = 0.8; c.strokeRect(sx, yy - 4, 26, 7); }
+      if (k === 'beam' || k === 'lintel') { c.setLineDash(k === 'beam' ? [6, 4] : [7, 4]); c.strokeStyle = k === 'beam' ? '#5c6b80' : '#c0392b'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(sx, yy - 3); c.lineTo(sx + 26, yy - 3); c.moveTo(sx, yy + 3); c.lineTo(sx + 26, yy + 3); c.stroke(); c.setLineDash([]); }
+      if (k === 'col') { c.fillStyle = '#5f6672'; c.fillRect(sx + 8, yy - 5, 10, 10); }
+      if (k === 'pad') { c.fillStyle = 'rgba(120,130,145,.55)'; c.fillRect(sx + 6, yy - 5, 14, 10); c.strokeStyle = '#4a5363'; c.strokeRect(sx + 6, yy - 5, 14, 10); }
+      c.fillStyle = '#39445a'; c.font = '11px system-ui, sans-serif'; c.fillText(t, sx + 36, yy + 4);
+    });
   }
   paintGrid() {
     const c = this.ctx, g = this.gridStep();

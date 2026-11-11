@@ -211,22 +211,40 @@ function confirmInline(btn, msg) {
 const matOpts = (filter) => Object.entries(MATERIALS).filter(([, m]) => !filter || filter(m)).map(([k, m]) => [k, m.name]);
 const compOpts = (kind) => [['', '— un singur material (grosimea de mai jos) —'], ...Object.entries(COMPOSITES).filter(([, c]) => c.for === kind).map(([k, c]) => [k, `${c.name} · ${Math.round(compositeThickness(k) * 1000) / 10} cm`])];
 const optsOf = (o) => Object.entries(o);
+const PROFILE_OPTS = [['', '— secțiune dreptunghiulară —'], ...Object.values(PROFILES).flat().map((x) => [x.name, x.name])];
 const FIELDS = {
   wall: [['composite', 'Structură (straturi)', 'sel', compOpts('wall')], ['thickness', 'Grosime totală (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['base', 'Decalaj bază (m)', 'm'], ['material', 'Material (fără straturi)', 'sel', matOpts((m) => ['beton', 'zidarie', 'usor', 'lemn', 'otel'].includes(m.kind))], ['bearing', 'Perete portant (preia încărcări)', 'chk'], ['exterior', 'Perete exterior', 'chk'], ['flipLayers', 'Inversează straturile (fața exterioară pe cealaltă parte)', 'chk'], ['plaster', 'Tencuit pe ambele fețe (fără straturi)', 'chk']],
   door: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Prag (m)', 'm'], ['kind', 'Tip', 'sel', [['interioară', 'Interioară'], ['exterioară', 'Exterioară (intrare)'], ['metalică', 'Metalică / tehnică'], ['glisantă', 'Glisantă']]], ['frame', 'Material', 'sel', [['lemn', 'Lemn / MDF'], ['PVC', 'PVC'], ['aluminiu', 'Aluminiu'], ['metal', 'Metal']]], ['flip', 'Deschidere pe partea cealaltă', 'chk'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie)'], ['none', 'Fără buiandrug']]], ['name', 'Denumire', 'text']],
   window: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Parapet (m)', 'm'], ['frame', 'Material ramă', 'sel', [['PVC', 'PVC'], ['aluminiu', 'Aluminiu cu barieră termică'], ['lemn', 'Lemn stratificat']]], ['glazing', 'Vitraj', 'sel', [['Tripan Low-E', 'Tripan Low-E'], ['Dublu Low-E', 'Dublu Low-E'], ['Dublu Low-E securizat', 'Dublu Low-E securizat']]], ['uw', 'Uw (W/m²K)', 'num'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie)'], ['none', 'Fără buiandrug']]], ['name', 'Denumire', 'text']],
   gap: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Cota de jos a golului (m)', 'm'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie)'], ['none', 'Fără buiandrug']]], ['lintelH', 'Înălțime buiandrug (cm)', 'cm'], ['name', 'Denumire', 'text']],
   slab: [['composite', 'Structură (straturi)', 'sel', compOpts('slab')], ['thickness', 'Grosime totală (cm)', 'cm'], ['offset', 'Decalaj față de nivel (m)', 'm'], ['material', 'Material (fără straturi)', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['use', 'Folosință (încărcare utilă)', 'sel', Object.entries(USES).map(([k, u]) => [k, `${u.name} · ${u.q} kN/m²`])], ['finishes', 'Alte straturi permanente (kN/m²)', 'num'], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon'], ['auto', 'Clic în cameră (automat)']], 'tool']],
-  column: [['w', 'Latura x (cm)', 'cm'], ['d', 'Latura y (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel', 'zidarie'].includes(m.kind))]],
-  beam: [['w', 'Lățime (cm)', 'cm'], ['h', 'Înălțime (cm)', 'cm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['padA', 'Cuzineți la capete: lungime (cm, 0 = fără)', 'cm'], ['padH', 'Cuzineți: înălțime (cm)', 'cm']],
+  column: [['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel', 'zidarie'].includes(m.kind))], ['profile', 'Profil (la oțel)', 'sel', PROFILE_OPTS], ['grade', 'Oțel', 'sel', [['S235', 'S235'], ['S355', 'S355']]], ['w', 'Latura x (cm)', 'cm'], ['d', 'Latura y (cm)', 'cm'], ['height', 'Înălțime (m)', 'm']],
+  beam: [['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['profile', 'Profil (la oțel)', 'sel', PROFILE_OPTS], ['grade', 'Oțel', 'sel', [['S235', 'S235'], ['S355', 'S355']]], ['w', 'Lățime (cm)', 'cm'], ['h', 'Înălțime (cm)', 'cm'], ['padA', 'Cuzineți la capete: lungime (cm, 0 = fără)', 'cm'], ['padH', 'Cuzineți: înălțime (cm)', 'cm']],
   footing: [['w', 'Lățime B (cm)', 'cm'], ['h', 'Înălțime talpă (cm)', 'cm'], ['depth', 'Adâncime de fundare (m)', 'm'], ['steel', 'Armătură estimată (kg/m³)', 'num']],
   roof: [['composite', 'Straturi', 'sel', compOpts('roof')], ['kind', 'Tip', 'sel', [['gable', 'În două ape'], ['mono', 'Într-o apă'], ['flat', 'Terasă (plat)']]], ['slope', 'Pantă (°)', 'num'], ['axis', 'Coama / panta pe', 'sel', [['x', 'Direcția X'], ['y', 'Direcția Y']]], ['offset', 'Cota streașinii față de nivel (m)', 'm'], ['thickness', 'Grosime (cm)', 'cm'], ['dead', 'Greutate învelitoare + șarpantă (kN/m²)', 'num'], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon']], 'tool']],
   zone: [['name', 'Nume', 'text'], ['number', 'Număr', 'text'], ['floor', 'Pardoseală', 'sel', optsOf(FINISH.floor)], ['walls', 'Pereți', 'sel', optsOf(FINISH.walls)], ['tileH', 'Înălțime faianță (m)', 'm'], ['ceiling', 'Tavan', 'sel', optsOf(FINISH.ceiling)], ['roomH', 'Înălțime liberă (m)', 'm'], ['skirting', 'Plintă', 'chk'], ['mode', 'Mod de desen', 'sel', [['auto', 'Clic în cameră (automat)'], ['rect', 'Dreptunghi'], ['poly', 'Poligon']], 'tool']],
   dim: [],
 };
 // după schimbarea structurii: grosimea și materialul structural urmează straturile
-function applyComposite(el, k) {
-  if ((el.type === 'beam' || el.type === 'column') && el.profile && (k === 'w' || k === 'h' || k === 'd' || k === 'material')) { delete el.profile; delete el.grade; }
+function applyComposite(el, k, type = el.type) {
+  if (type === 'beam' || type === 'column') {
+    const hk = type === 'beam' ? 'h' : 'd';
+    const setProf = (pr) => { el.profile = pr.name; el.grade = el.grade || 'S235'; el.material = 'otel'; el.w = pr.b / 1000; el[hk] = pr.h / 1000; };
+    if (k === 'profile') { const pr = profileByName(el.profile); if (pr) setProf(pr); else { delete el.profile; delete el.grade; if (el.material === 'otel') el.material = 'beton'; } }
+    else if (k === 'material') {
+      if (el.material === 'otel' && !el.profile) {
+        // profilul cel mai apropiat de înălțimea actuală: IPE la grinzi, HEB la stâlpi
+        const fam = PROFILES[type === 'beam' ? 'IPE' : 'HEB'];
+        const target = (el[hk] || 0.3) * 1000;
+        setProf(fam.reduce((a, x) => Math.abs(x.h - target) < Math.abs(a.h - target) ? x : a, fam[0]));
+      } else if (el.material !== 'otel') { delete el.profile; delete el.grade; }
+    } else if (el.profile && (k === 'w' || k === hk)) {
+      // dimensiune schimbată la un profil: profilul din aceeași familie cel mai apropiat
+      const famName = el.profile.split(' ')[0], fam = PROFILES[famName] || PROFILES.IPE;
+      const target = (k === 'w' ? el.w : el[hk]) * 1000, key = k === 'w' ? 'b' : 'h';
+      setProf(fam.reduce((a, x) => Math.abs(x[key] - target) < Math.abs(a[key] - target) ? x : a, fam[0]));
+    }
+  }
   if (k === 'composite' && el.composite) { el.thickness = compositeThickness(el.composite); el.material = coreMaterial(el); }
   if (k === 'thickness' && el.composite && Math.abs(el.thickness - compositeThickness(el.composite)) > 1e-6) el.composite = '';
 }
@@ -321,7 +339,7 @@ function renderSide() {
     const D = A.defaults[t];
     side.innerHTML = `<h3>Setări: ${esc(TYPE_NAMES[t])}</h3><p class="hint">Se aplică elementelor pe care le desenezi de acum înainte.</p>
       <div class="form" id="form">${FIELDS[t].map((f) => fieldHtml(f, D[f[0]], true)).join('')}</div>`;
-    $('#form').onchange = (e) => { const k = e.target.dataset.k; if (!k) return; const v = readField(e.target); if (v !== undefined) D[k] = v; applyComposite(D, k); renderSide(); plan.status(); plan.invalidate(); };
+    $('#form').onchange = (e) => { const k = e.target.dataset.k; if (!k) return; const v = readField(e.target); if (v !== undefined) D[k] = v; applyComposite(D, k, t); renderSide(); plan.status(); plan.invalidate(); };
     return;
   }
   const types = [...new Set(sel.map((e) => e.type))];
@@ -410,6 +428,21 @@ $('#views').onclick = (e) => { const b = e.target.closest('[data-view]'); if (b)
 $('#b-fit').onclick = () => plan.fit();
 $('#b-fit3d').onclick = () => view3d?.fit();
 $('#c-grid').onchange = (e) => { plan.gridSnap = e.target.checked; };
+// plan de arhitectură / plan de stabilitate
+function setPlanMode(m) {
+  plan.mode = m;
+  for (const b of document.querySelectorAll('#planmode [data-pm]')) b.classList.toggle('on', b.dataset.pm === m);
+  $('#b-png').hidden = m !== 'stab';
+  try { localStorage.setItem('cad:planmode', m); } catch { /* */ }
+  plan.invalidate();
+}
+$('#planmode').onclick = (e) => { const b = e.target.closest('[data-pm]'); if (b) setPlanMode(b.dataset.pm); };
+try { if (localStorage.getItem('cad:planmode') === 'stab') setPlanMode('stab'); } catch { /* */ }
+$('#b-png').onclick = () => {
+  plan.paint();
+  const s = storeyOf(A.p, { storey: A.storey });
+  plan.cv.toBlob((b) => download(b, `${A.p.name} - plan stabilitate - ${s.name}.png`.replace(/[\\/:*?"<>|]/g, '_')), 'image/png');
+};
 $('#c-upto').onchange = (e) => { if (view3d) { view3d.upTo = e.target.checked; view3d.invalidate('model'); } };
 $('#c-zones').onchange = (e) => { if (view3d) { view3d.showZones = e.target.checked; view3d.invalidate('model'); } };
 $('#c-xray').onchange = (e) => { if (view3d) { view3d.xray = e.target.checked; view3d.invalidate('model'); } };
