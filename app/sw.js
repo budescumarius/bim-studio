@@ -1,8 +1,8 @@
 // Service worker BIM Studio: aplicația funcționează offline după prima încărcare.
-const VERSION = 'bim-studio-v7';
+const VERSION = 'bim-studio-v8';
 const ASSETS = [
   './', './index.html', './cad.css', './main.js', './model.js', './state.js', './editor2d.js', './geometry3d.js',
-  './view3d.js', './loads.js', './ifc-export.js', './boq.js', './excel.js', './design.js', './manifest.webmanifest',
+  './view3d.js', './loads.js', './ifc-export.js', './boq.js', './excel.js', './design.js', './pdf.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './viewer/', './viewer/index.html', './viewer/bim.css', './viewer/main.js', './viewer/demo.js', './viewer/ifc.js',
   './viewer/bimx.js', './viewer/sheets.js',
@@ -11,7 +11,8 @@ const ASSETS = [
 const CDN_HOSTS = ['cdn.jsdelivr.net'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' ocolește memoria HTTP a browserului – altfel o versiune nouă putea primi fișiere vechi amestecate cu cele noi
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

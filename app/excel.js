@@ -1,6 +1,6 @@
 // Export Excel (.xlsx) cu ExcelJS: antemăsurătoare cu formule, detaliere, tâmplărie, camere și elemente.
 import { MATERIALS, COMPOSITES, FINISH, USES, TYPE_NAMES, storeyOf, byId, quantities, sortedStoreys } from './model.js';
-import { computeBOQ, joinerySchedule, roomSchedule } from './boq.js';
+import { computeBOQ, joinerySchedule, roomSchedule, structureSchedule } from './boq.js';
 
 const EXCELJS = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 let loading = null;
@@ -195,6 +195,34 @@ export async function exportExcel(p) {
       r += 2;
     }
   });
+
+  // ------------------------------------------------ Structură: metraj pe elemente (corespunde planului de stabilitate)
+  {
+    const wsS = wb.addWorksheet('Structură', { views: [{ state: 'frozen', ySplit: 5 }], pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+    wsS.columns = [{ width: 16 }, { width: 12 }, { width: 18 }, { width: 18 }, { width: 22 }, { width: 12 }, { width: 12 }, { width: 14 }, { width: 14 }, { width: 11 }, { width: 34 }];
+    titleBlock(wsS, p, 'METRAJ ELEMENTE STRUCTURALE (PLAN STABILITATE)', 11);
+    header(wsS, 5, ['Element', 'Nivel', 'Tip', 'Secțiune', 'Dimensiune', 'Beton (m³)', 'Cofraj (m²)', 'Armătură BST500S (kg, est.)', 'Oțel profile (kg)', 'Lemn (m³)', 'Observații']);
+    const rowsS = structureSchedule(p);
+    let rr = 6;
+    for (const x of rowsS) {
+      const row = wsS.getRow(rr++);
+      row.values = [x.id.toUpperCase(), x.storey, x.type, x.sec, x.dim, x.conc || null, x.form || null, x.rebar || null, x.steel || null, x.timber || null, x.note];
+      for (const c of [6, 7, 8, 9, 10]) row.getCell(c).numFmt = NUM;
+      cellsBorder(row, 11);
+    }
+    const tot = wsS.getRow(rr);
+    tot.getCell(1).value = 'TOTAL';
+    tot.getCell(1).font = { bold: true };
+    for (const c of [6, 7, 8, 9, 10]) {
+      const col = String.fromCharCode(64 + c);
+      const cell = tot.getCell(c);
+      cell.value = rowsS.length ? { formula: `SUM(${col}6:${col}${rr - 1})`, result: rowsS.reduce((a, x) => a + ([0, 0, 0, 0, 0, x.conc, x.form, x.rebar, x.steel, x.timber][c - 1] || 0), 0) } : 0;
+      cell.numFmt = NUM; cell.font = { bold: true };
+    }
+    cellsBorder(tot, 11);
+    wsS.getRow(rr + 2).getCell(1).value = 'Armătura este estimată din consumuri specifice (kg/m³) – se înlocuiește cu extrasul de armătură din proiectul de rezistență.';
+    wsS.getRow(rr + 2).getCell(1).font = { italic: true, size: 9 };
+  }
 
   // ------------------------------------------------ 5. Elemente
   const we = wb.addWorksheet('Elemente', { views: [{ state: 'frozen', ySplit: 5 }] });

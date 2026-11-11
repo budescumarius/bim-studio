@@ -283,3 +283,57 @@ export function roomSchedule(p) {
   return out;
 }
 export { COMPOSITES };
+
+// ------------------------------------------------ metraj pe elemente structurale (planul de stabilitate)
+// fiecare rând: element, nivel, tip, secțiune, dimensiune, beton (m³), cofraj (m²), armătură estimată (kg), oțel profile (kg)
+export function structureSchedule(p) {
+  const rows = [];
+  const marks = openingMarks(p);
+  const st = (e) => storeyOf(p, e.wall ? byId(p, e.wall) || e : e).name;
+  const cm = (v) => Math.round(v * 100);
+  const push = (r) => rows.push({ conc: 0, form: 0, rebar: 0, steel: 0, timber: 0, note: '', ...r });
+  for (const f of p.elements.filter((e) => e.type === 'footing')) {
+    const [e0, e1] = footingExtensions(p, f);
+    const L = f.pad ? f.w : dist(f.a, f.b) + e0 + e1, V = L * f.w * f.h;
+    push({ id: f.id, storey: st(f), type: f.pad ? 'Fundație izolată' : 'Fundație continuă', sec: `${cm(f.w)}×${cm(f.h)} cm`, dim: `L = ${L.toFixed(2)} m`, conc: V, form: 2 * L * f.h + (f.pad ? 2 * f.w * f.h : 0), rebar: V * (f.steel || STEEL.footing), note: `C20/25, Df = ${f.depth} m` });
+  }
+  for (const c of p.elements.filter((e) => e.type === 'column')) {
+    const pr = c.profile && profileByName(c.profile);
+    if (pr) push({ id: c.id, storey: st(c), type: 'Stâlp oțel', sec: `${pr.name} ${c.grade || 'S235'}`, dim: `H = ${c.height.toFixed(2)} m`, steel: pr.G * c.height * 1.1, note: '+10% plăci de bază, prinderi' });
+    else if (MATERIALS[c.material]?.kind === 'beton') { const V = c.w * c.d * c.height; push({ id: c.id, storey: st(c), type: 'Stâlp b.a.', sec: `${cm(c.w)}×${cm(c.d)} cm`, dim: `H = ${c.height.toFixed(2)} m`, conc: V, form: 2 * (c.w + c.d) * c.height, rebar: V * STEEL.column, note: c.rebar || 'C25/30' }); }
+    else push({ id: c.id, storey: st(c), type: `Stâlp ${MATERIALS[c.material]?.name || c.material}`, sec: `${cm(c.w)}×${cm(c.d)} cm`, dim: `H = ${c.height.toFixed(2)} m`, timber: c.w * c.d * c.height });
+  }
+  for (const b of p.elements.filter((e) => e.type === 'beam')) {
+    const L = dist(b.a, b.b), pr = b.profile && profileByName(b.profile);
+    if (pr) push({ id: b.id, storey: st(b), type: 'Grindă oțel', sec: `${pr.name} ${b.grade || 'S235'}`, dim: `L = ${L.toFixed(2)} m`, steel: pr.G * L * 1.05, note: '+5% prinderi' });
+    else if (MATERIALS[b.material]?.kind === 'beton') { const V = L * b.w * b.h; push({ id: b.id, storey: st(b), type: 'Grindă b.a.', sec: `${cm(b.w)}×${cm(b.h)} cm`, dim: `L = ${L.toFixed(2)} m`, conc: V, form: L * (2 * b.h + b.w), rebar: V * STEEL.beam, note: b.rebar || 'C25/30' }); }
+    else push({ id: b.id, storey: st(b), type: 'Grindă lemn', sec: `${cm(b.w)}×${cm(b.h)} cm`, dim: `L = ${L.toFixed(2)} m`, timber: L * b.w * b.h });
+    if (b.padA > 0) for (const s of beamEndSupports(p, b)) {
+      if (!s || s.e.type !== 'wall') continue;
+      const t = wallCore(s.e).t, h = b.padH || 0.2, V = b.padA * t * h;
+      push({ id: b.id + '-Cz', storey: st(b), type: 'Cuzinet b.a.', sec: `${cm(b.padA)}×${cm(t)}×${cm(h)} cm`, dim: `pe ${s.e.id.toUpperCase()}`, conc: V, form: 2 * (b.padA + t) * h, rebar: V * STEEL.pad, note: '4Ø12 + etr. Ø8/15' });
+    }
+  }
+  for (const o of p.elements.filter(isOpening)) {
+    const lin = lintelOf(p, o);
+    if (!lin) continue;
+    const pr = lin.type === 'otel' && lin.profile && profileByName(lin.profile), n = o.lintelN || 1;
+    const name = `${marks.get(o.id) || ''} (${o.id.toUpperCase()})`;
+    if (pr) push({ id: 'Bd ' + name, storey: st(o), type: 'Buiandrug oțel', sec: `${n > 1 ? n + '×' : ''}${pr.name}`, dim: `L = ${lin.len.toFixed(2)} m`, steel: n * pr.G * lin.len });
+    else { const V = lin.len * lin.core.t * lin.h; push({ id: 'Bd ' + name, storey: st(o), type: 'Buiandrug b.a.', sec: `${cm(lin.core.t)}×${cm(lin.h)} cm`, dim: `L = ${lin.len.toFixed(2)} m`, conc: V, form: 2 * lin.len * lin.h + o.width * lin.core.t, rebar: V * STEEL.lintel, note: o.lintelRebar || 'C25/30' }); }
+  }
+  for (const s of p.elements.filter((e) => e.type === 'slab')) {
+    const A = Math.abs(polyArea(s.pts)), ground = s.use === 'sol';
+    const t = layersOf(s).filter((l) => MATERIALS[l.m]?.kind === 'beton').reduce((a, l) => a + l.t, 0) || (!s.composite && MATERIALS[s.material]?.kind === 'beton' ? s.thickness : 0);
+    if (!t) continue;
+    const V = A * t;
+    push({ id: s.id, storey: st(s), type: ground ? 'Placă pe sol b.a.' : 'Placă b.a.', sec: `h = ${cm(t)} cm`, dim: `A = ${A.toFixed(2)} m²`, conc: V, form: ground ? 0 : A + polyPerimeter(s.pts) * t, rebar: V * (ground ? STEEL.slabGround : STEEL.slab), note: 'C25/30' });
+  }
+  for (const w of p.elements.filter((e) => e.type === 'wall' && e.bearing)) {
+    const core = wallCore(w), m = MATERIALS[core.mat];
+    if (m?.kind !== 'beton') continue;
+    const L = wallLength(w), opA = openingsOf(p, w).reduce((a, o) => a + o.width * Math.min(o.height, w.height - o.sill), 0), V = (L * w.height - opA) * core.t;
+    push({ id: w.id, storey: st(w), type: 'Perete b.a.', sec: `t = ${cm(core.t)} cm`, dim: `L = ${L.toFixed(2)} m, H = ${w.height.toFixed(2)} m`, conc: V, form: 2 * (L * w.height - opA), rebar: V * STEEL.wall, note: 'C25/30' });
+  }
+  return rows;
+}
