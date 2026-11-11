@@ -1,7 +1,7 @@
 // Export IFC4 (Reference View): pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri,
 // spații (camere), materiale, culori, seturi de proprietăți și cantități de bază.
 // Fișierul se poate deschide în ARCHICAD, Revit, Allplan, Tekla, BIMcollab, programe de calcul structural etc.
-import { MATERIALS, USES, sortedStoreys, storeyOf, byId, wallLength, wallExtensions, polyArea, quantities, norm, sub } from './model.js';
+import { MATERIALS, USES, COMPOSITES, layersOf, footingExtensions, sortedStoreys, storeyOf, byId, wallLength, wallExtensions, polyArea, quantities, norm, sub, dist } from './model.js';
 import { elementGeometry } from './geometry3d.js';
 
 const GUID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
@@ -100,6 +100,23 @@ export function exportIfc(p) {
   };
   const matUse = new Map();
   const useMat = (key, el) => { if (!key || !MATERIALS[key]) return; if (!matUse.has(key)) matUse.set(key, []); matUse.get(key).push(el); };
+  // materiale IFC (o singură entitate pe material) și seturi de straturi pentru elementele compuse
+  const ifcMats = new Map();
+  const ifcMat = (key) => { if (!ifcMats.has(key)) ifcMats.set(key, e(`IFCMATERIAL(${str(MATERIALS[key]?.name || key)},$,${str(MATERIALS[key]?.kind || '')})`)); return ifcMats.get(key); };
+  const layerSets = new Map();
+  const layerSet = (id, reverse) => {
+    const k = id + (reverse ? ':r' : '');
+    if (!layerSets.has(k)) {
+      const ls = COMPOSITES[id].layers.map(([m, t]) => e(`IFCMATERIALLAYER(${ifcMat(m)},${num(t)},$,${str(MATERIALS[m]?.name || m)},$,$,$)`));
+      if (reverse) ls.reverse();
+      layerSets.set(k, e(`IFCMATERIALLAYERSET((${ls.join(',')}),${str(COMPOSITES[id].name)},$)`));
+    }
+    return layerSets.get(k);
+  };
+  const useLayers = (el, ifcEl, dir, sense, offset, reverse) => {
+    const usage = e(`IFCMATERIALLAYERSETUSAGE(${layerSet(el.composite, reverse)},.${dir}.,.${sense}.,${num(offset)},$)`);
+    e(`IFCRELASSOCIATESMATERIAL('${guid()}',${owner},$,$,(${ifcEl}),${usage})`);
+  };
 
   const storeyIfc = new Map();
   const contained = new Map();
@@ -129,7 +146,8 @@ export function exportIfc(p) {
       contained.get(S.s.id).push(w);
       props(w, 'Pset_WallCommon', { IsExternal: !!el.exterior, LoadBearing: !!el.bearing });
       qto(w, 'Qto_WallBaseQuantities', { Length: ['length', Lw], Height: ['length', el.height], Width: ['length', el.thickness], NetSideArea: ['area', q['Arie netă (m²)']], NetVolume: ['volume', q['Volum (m³)']] });
-      useMat(el.material, w);
+      if (el.composite && COMPOSITES[el.composite]) useLayers(el, w, 'AXIS2', el.flipLayers ? 'NEGATIVE' : 'POSITIVE', el.flipLayers ? el.thickness / 2 : -el.thickness / 2, false);
+      else useMat(el.material, w);
     } else if (el.type === 'slab') {
       const pl = local(S.pl, 0, 0, (el.offset || 0) - el.thickness);
       const s = e(`IFCSLAB('${guid()}',${owner},${str('Placă ' + el.id.toUpperCase())},$,$,${pl},${shape([polySolid(el.pts, el.thickness)], 'SweptSolid', m?.c3)},$,.${el.use === 'sol' ? 'BASESLAB' : 'FLOOR'}.)`);
@@ -137,7 +155,8 @@ export function exportIfc(p) {
       props(s, 'Pset_SlabCommon', { LoadBearing: true, IsExternal: el.use === 'A_bal' || el.use === 'H' || el.use === 'I' });
       props(s, 'Încărcări', { 'Categorie de folosință': USES[el.use]?.name, 'Încărcare utilă qk (kN/m²)': USES[el.use]?.q, 'Straturi permanente (kN/m²)': el.finishes || 0 });
       qto(s, 'Qto_SlabBaseQuantities', { Width: ['length', el.thickness], GrossArea: ['area', Math.abs(polyArea(el.pts))], NetVolume: ['volume', q['Volum (m³)']] });
-      useMat(el.material, s);
+      if (el.composite && COMPOSITES[el.composite]) useLayers(el, s, 'AXIS3', 'POSITIVE', 0, true);
+      else useMat(el.material, s);
     } else if (el.type === 'column') {
       const pl = local(S.pl, el.p[0], el.p[1], 0);
       const c = e(`IFCCOLUMN('${guid()}',${owner},${str('Stâlp ' + el.id.toUpperCase())},$,$,${pl},${shape([rectSolid(0, 0, el.w, el.d, el.height)], 'SweptSolid', m?.c3)},$,.COLUMN.)`);
@@ -173,6 +192,17 @@ export function exportIfc(p) {
       contained.get(S.s.id).push(r);
       props(r, 'Pset_RoofCommon', { Pantă: el.slope + '°' });
       useMat(el.material, r);
+    } else if (el.type === 'footing') {
+      const d = norm(sub(el.b, el.a));
+      const [e0, e1] = footingExtensions(p, el);
+      const L = dist(el.a, el.b);
+      const pl = local(S.pl, el.a[0], el.a[1], -el.depth, dir(d[0], d[1], 0));
+      const solid = el.pad ? rectSolid(L / 2, 0, el.w, el.w, el.h) : rectSolid((L + e1 - e0) / 2, 0, L + e0 + e1, el.w, el.h);
+      const f = e(`IFCFOOTING('${guid()}',${owner},${str('Fundație ' + el.id.toUpperCase())},$,$,${pl},${shape([solid], 'SweptSolid', 0x9da3ad)},$,.${el.pad ? 'PAD_FOOTING' : 'STRIP_FOOTING'}.)`);
+      contained.get(S.s.id).push(f);
+      props(f, 'Pset_FootingCommon', { LoadBearing: true });
+      qto(f, 'Qto_FootingBaseQuantities', { Length: ['length', el.pad ? el.w : L + e0 + e1], Width: ['length', el.w], Height: ['length', el.h], NetVolume: ['volume', (el.pad ? el.w : L + e0 + e1) * el.w * el.h] });
+      useMat('beton', f);
     } else if (el.type === 'zone') {
       const h = Math.min(2.6, S.s.height - 0.2);
       const pl = local(S.pl, 0, 0, 0);
@@ -205,7 +235,7 @@ export function exportIfc(p) {
   for (const [sid, list] of contained) if (list.length) e(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${guid()}',${owner},$,$,(${list.join(',')}),${storeyIfc.get(sid).st})`);
   for (const [sid, list] of spaces) if (list.length) e(`IFCRELAGGREGATES('${guid()}',${owner},$,$,${storeyIfc.get(sid).st},(${list.join(',')}))`);
   for (const [key, list] of matUse) {
-    const mat = e(`IFCMATERIAL(${str(MATERIALS[key].name)},$,$)`);
+    const mat = ifcMat(key);
     e(`IFCRELASSOCIATESMATERIAL('${guid()}',${owner},$,$,(${list.join(',')}),${mat})`);
   }
   void byId;

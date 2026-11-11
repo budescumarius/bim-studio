@@ -4,8 +4,11 @@
 //  - ariile aferente ale plăcilor se împart pe reazemul cel mai apropiat (perete portant, grindă sau stâlp);
 //  - încărcările coboară nivel cu nivel până la fundații; combinația SLU: γG·G + γQ·Q (6.10), SLS caracteristică: G + Q.
 // NU include seismul (P100-1), vântul, excentricitățile, flambajul detaliat sau armarea. Nu înlocuiește proiectul de rezistență.
-import { MATERIALS, USES, sortedStoreys, storeyOf, wallLength, openingsOf, projectOnSegment, polyArea, pointInPoly, bbox, dist, sub, norm, dot } from './model.js';
+import { MATERIALS, USES, layersOf, sortedStoreys, storeyOf, wallLength, openingsOf, projectOnSegment, polyArea, pointInPoly, bbox, dist, sub, norm, dot } from './model.js';
 
+// greutatea pe m² a unui element pe straturi (kN/m²) și grosimea structurală
+const areaWeight = (el) => layersOf(el).reduce((a, l) => a + (MATERIALS[l.m]?.gamma || 0) * l.t, 0);
+const coreT = (el) => layersOf(el).filter((l) => ['beton', 'zidarie', 'lemn', 'otel'].includes(MATERIALS[l.m]?.kind)).reduce((a, l) => a + l.t, 0) || el.thickness;
 const PARTITION_USES = new Set(['A', 'B', 'C1', 'C3', 'D1']);
 
 export function snowLoad(P, slopeDeg) {
@@ -113,14 +116,14 @@ export function computeLoads(p) {
         const L = wallLength(e);
         const ops = openingsOf(p, e);
         const opA = ops.reduce((a, o) => a + o.width * Math.min(o.height, e.height - o.sill), 0);
-        r.self = (m?.gamma || 0) * e.thickness * (L * e.height - opA);
+        r.self = areaWeight(e) * (L * e.height - opA);
         r.G += r.self;
         r.L = L;
         const Leff = Math.max(0.1, L - ops.reduce((a, o) => a + o.width, 0));
         r.NEd = P.gG * r.G + P.gQ * r.Q;
         r.nEd = r.NEd / L;
         r.nk = (r.G + r.Q) / L;
-        const sigma = r.NEd / (e.thickness * Leff) / 1000; // MPa
+        const sigma = r.NEd / (coreT(e) * Leff) / 1000; // MPa (pe grosimea structurală)
         r.sigma = sigma;
         if (m && m.fd) {
           const fd = m.kind === 'beton' ? 0.4 * m.fd : 0.75 * m.fd;
@@ -196,15 +199,15 @@ export function computeLoads(p) {
       const r = res(sl);
       const A = Math.abs(polyArea(sl.pts));
       const m = MATERIALS[sl.material];
-      let g = (m?.gamma || 25) * sl.thickness + (sl.finishes || 0);
+      let g = areaWeight(sl) + (sl.finishes || 0);
       // pereții neportanți așezați pe placă: greutatea lor se întinde pe placă
       const light = els(s, (e) => e.type === 'wall' && !e.bearing && pointInPoly([(e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2], sl.pts));
-      const wLight = light.reduce((a, w) => a + (MATERIALS[w.material]?.gamma || 0) * w.thickness * w.height * wallLength(w), 0);
+      const wLight = light.reduce((a, w) => a + areaWeight(w) * w.height * wallLength(w), 0);
       g += wLight / A;
       const qk = USES[sl.use]?.q ?? 1.5;
       const q = qk + (PARTITION_USES.has(sl.use) ? P.partitions : 0);
       Object.assign(r, { area: A, g, q, G: A * g, Q: A * q });
-      r.checks.push(`g = ${g.toFixed(2)} kN/m² (placă ${(sl.thickness * 100).toFixed(0)} cm + straturi ${sl.finishes ?? 0}${wLight ? ' + pereți ușori' : ''}); q = ${q.toFixed(2)} kN/m² (${USES[sl.use]?.name || ''}${PARTITION_USES.has(sl.use) ? ' + pereți despărțitori' : ''})`);
+      r.checks.push(`g = ${g.toFixed(2)} kN/m² (straturi ${(sl.thickness * 100).toFixed(0)} cm + alte straturi ${sl.finishes ?? 0}${wLight ? ' + pereți ușori' : ''}); q = ${q.toFixed(2)} kN/m² (${USES[sl.use]?.name || ''}${PARTITION_USES.has(sl.use) ? ' + pereți despărțitori' : ''})`);
       r.pEd = P.gG * g + P.gQ * q;
       const b = bbox(sl.pts), span = Math.min(b.x1 - b.x0, b.y1 - b.y0);
       if (!below || sl.use === 'sol') { ground.G += r.G; ground.Q += r.Q; ground.area += A; r.onGround = true; continue; }
@@ -224,11 +227,11 @@ export function computeLoads(p) {
       }
       r.span = lspan;
       const tmin = lspan / 35;
-      r.util = tmin / sl.thickness;
-      r.checks.push(`grosime ${(sl.thickness * 100).toFixed(0)} cm; recomandat ≥ L/35 = ${(tmin * 100).toFixed(0)} cm (L ≈ ${lspan.toFixed(2)} m)`);
+      r.util = tmin / coreT(sl);
+      r.checks.push(`grosime placă ${(coreT(sl) * 100).toFixed(0)} cm; recomandat ≥ L/35 = ${(tmin * 100).toFixed(0)} cm (L ≈ ${lspan.toFixed(2)} m)`);
     }
     // pereții neportanți de la cel mai de jos nivel merg direct pe teren
-    if (!below) for (const w of els(s, (e) => e.type === 'wall' && !e.bearing)) { const g = (MATERIALS[w.material]?.gamma || 0) * w.thickness * w.height * wallLength(w); ground.G += g; }
+    if (!below) for (const w of els(s, (e) => e.type === 'wall' && !e.bearing)) { const g = areaWeight(w) * w.height * wallLength(w); ground.G += g; }
   }
 
   const items = [...R.values()].map((r) => ({ ...r, NEd: r.NEd ?? (P.gG * r.G + P.gQ * r.Q) }));

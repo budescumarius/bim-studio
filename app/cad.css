@@ -32,7 +32,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .top { position: fixed; left: 0; right: 0; top: 0; height: var(--top-h); display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 10; }
 .spacer { flex: 1; }
 .logo { width: 30px; height: 30px; border-radius: 8px; flex: none; }
-.grp { display: flex; align-items: center; gap: 4px; }
+.top .grp { display: flex; align-items: center; gap: 4px; }
 .lbl { color: var(--muted); }
 .pname { width: 220px; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; font-weight: 700; font-size: 15px; background: transparent; }
 .pname:hover, .pname:focus { border-color: var(--border); background: var(--surface-2); outline: none; }
@@ -188,3 +188,17 @@ dialog .tbl .field { max-width: 30vw; }
 }
 @media (max-width: 1100px) { #toast { bottom: calc(var(--tb-h) + env(safe-area-inset-bottom, 0px) + 80px); max-width: 90vw; text-align: center; } }
 @media (min-width: 1101px) and (max-width: 1380px) { .lbl { display: none; } .pname { width: 150px; } .top { gap: 6px; } .btn { padding: 0 9px; } }
+
+/* antemăsurătoare */
+.qtabs { display: inline-flex; flex-wrap: wrap; }
+.tbl.boq .field { height: 30px; width: 100%; min-width: 70px; }
+.tbl.boq .field.code { width: 96px; }
+.tbl.boq .field.price { width: 110px; text-align: right; }
+.tbl tr.sub td { background: var(--surface-2); font-weight: 600; }
+.tbl tr.det td { background: color-mix(in srgb, var(--primary) 4%, var(--surface)); padding-top: 3px; padding-bottom: 3px; }
+.linkish { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: var(--text); font: inherit; }
+.linkish:hover { color: var(--primary); }
+.tbl.boq th:first-child, .tbl.boq td:first-child:not([colspan]) { width: 44px; }
+.tbl.boq th:nth-child(4), .tbl.boq td:nth-child(4) { width: 50px; }
+.tbl.boq th:nth-child(5), .tbl.boq td:nth-child(5) { width: 100px; }
+.tbl.boq th:nth-child(7), .tbl.boq td:nth-child(7) { width: 120px; }

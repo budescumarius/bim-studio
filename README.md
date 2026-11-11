@@ -11,7 +11,19 @@ Aplicație web de proiectare BIM pentru calculator, iPad și telefon. Se instale
 - **Editare**: selecție (și cu dreptunghi), mutare, editarea capetelor (pereții legați se întind împreună), copiere, ștergere, anulare/refacere, niveluri cu cote și înălțimi.
 - **3D generat automat**, alături de plan sau pe tot ecranul.
 - **Proprietăți**: grosimi, înălțimi, materiale, portant/neportant, folosința planșeelor, straturi permanente.
-- **Cantități**: beton, zidării, tencuieli, pardoseli, tâmplărie, suprafețe utile, cu export CSV pentru Excel.
+- **Structuri pe straturi** (ca în ARCHICAD):
+  - pereți exteriori cu termosistem (BCA/Porotherm/beton + EPS/vată + tencuieli), pereți interiori tencuiți, gips-carton;
+  - plăci pe sol, planșee cu fonoizolație, terase, balcoane;
+  - acoperiș cu țiglă, folie, șarpantă, vată și gips-carton.
+  Planul arată straturile, iar 3D-ul și IFC-ul le exportă ca seturi de straturi de material.
+- **Finisaje pe camere**: pardoseală (gresie, parchet…), plintă, pereți (glet + vopsea sau faianță până la o înălțime), tavan.
+- **Fundații**: continue sub pereți și izolate sub stâlpi, generate automat din meniu (lățimi din calculul de sarcini) sau desenate.
+- **Tâmplărie cu marcaje** (F1, U1 …) afișate pe plan, cu material, vitraj și Uw.
+- **Antemăsurătoare** pe capitole de deviz:
+  - terasamente, fundații, beton armat, zidării, acoperiș, izolații, tâmplărie, finisaje, pardoseli;
+  - detalierea calculului pe fiecare element;
+  - coduri de articol și prețuri unitare, salvate în proiect.
+- **Export Excel (.xlsx)** cu formule și totaluri (inclusiv TVA). Foi: Antemăsurătoare, Detaliere, Tâmplărie, Camere, Elemente, Niveluri. Se poate exporta și CSV.
 - **Calcul sarcini (orientativ, predimensionare)** după SR EN 1990 / 1991-1-1 / 1991-1-3:
   - greutate proprie, încărcări utile pe categorii, pereți despărțitori și zăpadă;
   - arii aferente și coborârea încărcărilor nivel cu nivel până la fundații, cu combinațiile SLU și SLS;

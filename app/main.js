@@ -1,5 +1,5 @@
 // BIM Studio – Proiectare: interfața aplicației (unelte, proprietăți, niveluri, cantități, sarcini, export).
-import { MATERIALS, USES, TYPE_NAMES, newProject, sampleProject, quantities, takeoff, byId, sortedStoreys, storeyOf, polyArea } from './model.js';
+import { MATERIALS, USES, TYPE_NAMES, COMPOSITES, FINISH, newProject, sampleProject, quantities, byId, sortedStoreys, storeyOf, polyArea, compositeThickness, coreMaterial, generateFootings, openingMarks } from './model.js';
 import { A, emit, on, snapshot, undo, redo, deleteElements } from './state.js';
 import { PlanEditor } from './editor2d.js';
 
@@ -77,8 +77,9 @@ const ICONS = {
   roof: '<path d="M2 13l10-8 10 8"/><path d="M5 11v8h14v-8"/>',
   zone: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2"/><path d="M8 13h8M10 10h4"/>',
   dim: '<path d="M3 17h18M3 13v8M21 13v8"/><path d="M8 9h8"/>',
+  footing: '<path d="M7 4v8M17 4v8"/><path d="M3 12h18v6H3z"/><path d="M3 21h18" stroke-dasharray="2 2"/>',
 };
-const TOOLS = [['select', 'Selecție', 'V'], 'hr', ['wall', 'Perete', 'W'], ['door', 'Ușă', 'D'], ['window', 'Fereastră', 'F'], ['column', 'Stâlp', 'C'], ['beam', 'Grindă', 'B'], ['slab', 'Placă', 'S'], ['roof', 'Acoperiș', 'R'], 'hr', ['zone', 'Zonă', 'Z'], ['dim', 'Cotă', 'Q']];
+const TOOLS = [['select', 'Selecție', 'V'], 'hr', ['wall', 'Perete', 'W'], ['door', 'Ușă', 'D'], ['window', 'Fereastră', 'F'], ['column', 'Stâlp', 'C'], ['beam', 'Grindă', 'B'], ['slab', 'Placă', 'S'], ['roof', 'Acoperiș', 'R'], ['footing', 'Fundație', 'T'], 'hr', ['zone', 'Zonă', 'Z'], ['dim', 'Cotă', 'Q']];
 function renderTools() {
   $('#tools').innerHTML = TOOLS.map((t) => (t === 'hr' ? '<hr>' : `<button data-tool="${t[0]}" class="${A.tool === t[0] ? 'on' : ''}" title="${t[1]} (${t[2]})"><kbd>${t[2]}</kbd><svg viewBox="0 0 24 24">${ICONS[t[0]]}</svg>${t[1]}</button>`)).join('');
 }
@@ -167,17 +168,25 @@ function confirmInline(btn, msg) {
 
 // ---------------------------------------------------------------- panoul de proprietăți
 const matOpts = (filter) => Object.entries(MATERIALS).filter(([, m]) => !filter || filter(m)).map(([k, m]) => [k, m.name]);
+const compOpts = (kind) => [['', '— un singur material (grosimea de mai jos) —'], ...Object.entries(COMPOSITES).filter(([, c]) => c.for === kind).map(([k, c]) => [k, `${c.name} · ${Math.round(compositeThickness(k) * 1000) / 10} cm`])];
+const optsOf = (o) => Object.entries(o);
 const FIELDS = {
-  wall: [['thickness', 'Grosime (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['base', 'Decalaj bază (m)', 'm'], ['material', 'Material', 'sel', matOpts((m) => m.kind !== 'acoperis')], ['bearing', 'Perete portant (preia încărcări)', 'chk'], ['exterior', 'Perete exterior', 'chk'], ['plaster', 'Tencuit pe ambele fețe', 'chk']],
-  door: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Prag (m)', 'm'], ['flip', 'Deschidere pe partea cealaltă', 'chk'], ['name', 'Denumire', 'text']],
-  window: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Parapet (m)', 'm'], ['name', 'Denumire', 'text']],
-  slab: [['thickness', 'Grosime (cm)', 'cm'], ['offset', 'Decalaj față de nivel (m)', 'm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['use', 'Folosință (încărcare utilă)', 'sel', Object.entries(USES).map(([k, u]) => [k, `${u.name} · ${u.q} kN/m²`])], ['finishes', 'Straturi permanente (kN/m²)', 'num'], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon'], ['auto', 'Clic în cameră (automat)']], 'tool']],
+  wall: [['composite', 'Structură (straturi)', 'sel', compOpts('wall')], ['thickness', 'Grosime totală (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['base', 'Decalaj bază (m)', 'm'], ['material', 'Material (fără straturi)', 'sel', matOpts((m) => ['beton', 'zidarie', 'usor', 'lemn', 'otel'].includes(m.kind))], ['bearing', 'Perete portant (preia încărcări)', 'chk'], ['exterior', 'Perete exterior', 'chk'], ['flipLayers', 'Inversează straturile (fața exterioară pe cealaltă parte)', 'chk'], ['plaster', 'Tencuit pe ambele fețe (fără straturi)', 'chk']],
+  door: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Prag (m)', 'm'], ['kind', 'Tip', 'sel', [['interioară', 'Interioară'], ['exterioară', 'Exterioară (intrare)'], ['metalică', 'Metalică / tehnică'], ['glisantă', 'Glisantă']]], ['frame', 'Material', 'sel', [['lemn', 'Lemn / MDF'], ['PVC', 'PVC'], ['aluminiu', 'Aluminiu'], ['metal', 'Metal']]], ['flip', 'Deschidere pe partea cealaltă', 'chk'], ['name', 'Denumire', 'text']],
+  window: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Parapet (m)', 'm'], ['frame', 'Material ramă', 'sel', [['PVC', 'PVC'], ['aluminiu', 'Aluminiu cu barieră termică'], ['lemn', 'Lemn stratificat']]], ['glazing', 'Vitraj', 'sel', [['Tripan Low-E', 'Tripan Low-E'], ['Dublu Low-E', 'Dublu Low-E'], ['Dublu Low-E securizat', 'Dublu Low-E securizat']]], ['uw', 'Uw (W/m²K)', 'num'], ['name', 'Denumire', 'text']],
+  slab: [['composite', 'Structură (straturi)', 'sel', compOpts('slab')], ['thickness', 'Grosime totală (cm)', 'cm'], ['offset', 'Decalaj față de nivel (m)', 'm'], ['material', 'Material (fără straturi)', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['use', 'Folosință (încărcare utilă)', 'sel', Object.entries(USES).map(([k, u]) => [k, `${u.name} · ${u.q} kN/m²`])], ['finishes', 'Alte straturi permanente (kN/m²)', 'num'], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon'], ['auto', 'Clic în cameră (automat)']], 'tool']],
   column: [['w', 'Latura x (cm)', 'cm'], ['d', 'Latura y (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel', 'zidarie'].includes(m.kind))]],
   beam: [['w', 'Lățime (cm)', 'cm'], ['h', 'Înălțime (cm)', 'cm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))]],
-  roof: [['kind', 'Tip', 'sel', [['gable', 'În două ape'], ['mono', 'Într-o apă'], ['flat', 'Terasă (plat)']]], ['slope', 'Pantă (°)', 'num'], ['axis', 'Coama / panta pe', 'sel', [['x', 'Direcția X'], ['y', 'Direcția Y']]], ['offset', 'Cota streașinii față de nivel (m)', 'm'], ['thickness', 'Grosime (cm)', 'cm'], ['dead', 'Greutate învelitoare + șarpantă (kN/m²)', 'num'], ['material', 'Material', 'sel', matOpts((m) => ['acoperis', 'beton', 'lemn'].includes(m.kind))], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon']], 'tool']],
-  zone: [['name', 'Nume', 'text'], ['number', 'Număr', 'text'], ['mode', 'Mod de desen', 'sel', [['auto', 'Clic în cameră (automat)'], ['rect', 'Dreptunghi'], ['poly', 'Poligon']], 'tool']],
+  footing: [['w', 'Lățime B (cm)', 'cm'], ['h', 'Înălțime talpă (cm)', 'cm'], ['depth', 'Adâncime de fundare (m)', 'm'], ['steel', 'Armătură estimată (kg/m³)', 'num']],
+  roof: [['composite', 'Straturi', 'sel', compOpts('roof')], ['kind', 'Tip', 'sel', [['gable', 'În două ape'], ['mono', 'Într-o apă'], ['flat', 'Terasă (plat)']]], ['slope', 'Pantă (°)', 'num'], ['axis', 'Coama / panta pe', 'sel', [['x', 'Direcția X'], ['y', 'Direcția Y']]], ['offset', 'Cota streașinii față de nivel (m)', 'm'], ['thickness', 'Grosime (cm)', 'cm'], ['dead', 'Greutate învelitoare + șarpantă (kN/m²)', 'num'], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon']], 'tool']],
+  zone: [['name', 'Nume', 'text'], ['number', 'Număr', 'text'], ['floor', 'Pardoseală', 'sel', optsOf(FINISH.floor)], ['walls', 'Pereți', 'sel', optsOf(FINISH.walls)], ['tileH', 'Înălțime faianță (m)', 'm'], ['ceiling', 'Tavan', 'sel', optsOf(FINISH.ceiling)], ['roomH', 'Înălțime liberă (m)', 'm'], ['skirting', 'Plintă', 'chk'], ['mode', 'Mod de desen', 'sel', [['auto', 'Clic în cameră (automat)'], ['rect', 'Dreptunghi'], ['poly', 'Poligon']], 'tool']],
   dim: [],
 };
+// după schimbarea structurii: grosimea și materialul structural urmează straturile
+function applyComposite(el, k) {
+  if (k === 'composite' && el.composite) { el.thickness = compositeThickness(el.composite); el.material = coreMaterial(el); }
+  if (k === 'thickness' && el.composite && Math.abs(el.thickness - compositeThickness(el.composite)) > 1e-6) el.composite = '';
+}
 function fieldHtml([k, label, kind, opts, only], v, isTool) {
   if (only === 'tool' && !isTool) return '';
   const id = 'f-' + k;
@@ -221,7 +230,7 @@ function renderSide() {
     const D = A.defaults[t];
     side.innerHTML = `<h3>Setări: ${esc(TYPE_NAMES[t])}</h3><p class="hint">Se aplică elementelor pe care le desenezi de acum înainte.</p>
       <div class="form" id="form">${FIELDS[t].map((f) => fieldHtml(f, D[f[0]], true)).join('')}</div>`;
-    $('#form').onchange = (e) => { const k = e.target.dataset.k; if (!k) return; const v = readField(e.target); if (v !== undefined) D[k] = v; plan.status(); plan.invalidate(); };
+    $('#form').onchange = (e) => { const k = e.target.dataset.k; if (!k) return; const v = readField(e.target); if (v !== undefined) D[k] = v; applyComposite(D, k); renderSide(); plan.status(); plan.invalidate(); };
     return;
   }
   const types = [...new Set(sel.map((e) => e.type))];
@@ -239,7 +248,7 @@ function renderSide() {
     const k = e.target.dataset.k; if (!k) return;
     const v = readField(e.target); if (v === undefined) return;
     snapshot();
-    for (const el of sel) el[k] = v;
+    for (const el of sel) { el[k] = v; applyComposite(el, k); }
     emit('model');
   };
   $('#s-del').onclick = () => { snapshot(); deleteElements([...A.sel]); emit('model'); };
@@ -359,21 +368,88 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-function openQty() {
-  const rows = takeoff(A.p);
-  const elems = A.p.elements.filter((e) => e.type !== 'dim');
-  let lastCat = '';
-  const html = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lucrare / material</th><th class="n">Cantitate</th><th>U.M.</th></tr></thead><tbody>
-    ${rows.map((r) => { const g = r.cat !== lastCat ? `<tr class="grp"><td colspan="3">${esc(r.cat)}</td></tr>` : ''; lastCat = r.cat; return g + `<tr><td>${esc(r.item)}</td><td class="n">${fmt(r.qty)}</td><td>${r.unit}</td></tr>`; }).join('')}
-    </tbody></table></div>
-    <h3 style="margin:20px 0 8px">Elemente (${elems.length})</h3>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Element</th><th>Nivel</th><th>Material / tip</th><th>Cantități</th></tr></thead><tbody>
-    ${elems.map((e) => `<tr class="click" data-id="${e.id}"><td>${TYPE_NAMES[e.type]} ${e.id.toUpperCase()}${e.name ? ' – ' + esc(e.name) : ''}</td><td>${esc(storeyOf(A.p, e.wall ? byId(A.p, e.wall) || e : e).name)}</td><td>${esc(MATERIALS[e.material]?.name || USES[e.use]?.name || '')}</td>
-      <td class="small">${Object.entries(quantities(A.p, e)).map(([k, v]) => `${esc(k)}: <b>${typeof v === 'number' ? fmt(v) : esc(v)}</b>`).join(' · ')}</td></tr>`).join('')}
-    </tbody></table></div>`;
-  openPage('qty', 'Cantități', html, '<button class="btn" id="qty-csv">Export CSV (Excel)</button> ');
-  $('#qty-csv').onclick = () => csvDownload(`Cantitati - ${A.p.name}.csv`, [['Categorie', 'Lucrare / material', 'Cantitate', 'U.M.'], ...rows.map((r) => [r.cat, r.item, r.qty, r.unit])]);
-  $('#page-body').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) selectFromPage(tr.dataset.id); };
+let qtyTab = 'boq';
+let openDet = new Set();
+async function openQty() {
+  const { computeBOQ, joinerySchedule, roomSchedule } = await import('./boq.js');
+  const boq = computeBOQ(A.p);
+  A.p.prices ||= {};
+  const vat = A.p.vat ?? 21;
+  const tabs = [['boq', 'Antemăsurătoare'], ['joinery', 'Tâmplărie'], ['rooms', 'Camere și finisaje'], ['elems', 'Elemente']];
+  let body = `<div class="seg qtabs" style="margin-bottom:12px">${tabs.map(([k, l]) => `<button data-qt="${k}" class="${qtyTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  if (qtyTab === 'boq') {
+    let total = 0;
+    const rows = boq.chapters.map((ch, ci) => {
+      let sub = 0;
+      const its = ch.items.map((it) => {
+        const pr = A.p.prices[it.key] || {};
+        const val = (Number(pr.price) || 0) * it.qty;
+        sub += val;
+        const open = openDet.has(it.key);
+        return `<tr class="art" data-key="${esc(it.key)}"><td class="n">${it.nr}</td>
+          <td><input class="field code" data-code="${esc(it.key)}" value="${esc(pr.code || '')}" placeholder="cod" aria-label="Cod articol"></td>
+          <td><button class="linkish" data-det="${esc(it.key)}" title="Detaliere pe elemente">${open ? '▾' : '▸'} ${esc(it.desc)}</button></td><td>${it.um}</td><td class="n">${fmt(it.qty)}</td>
+          <td><input class="field price" type="number" min="0" step="0.01" data-price="${esc(it.key)}" value="${pr.price ?? ''}" placeholder="0,00" aria-label="Preț unitar"></td><td class="n">${val ? fmt(val) : '—'}</td></tr>
+          ${open ? it.det.map((d) => `<tr class="det click" data-id="${esc(d.id || '')}"><td></td><td></td><td class="small">${esc(d.el)} · ${esc(d.storey)} · ${esc(d.calc)}</td><td></td><td class="n small">${fmt(d.qty, 3)}</td><td></td><td></td></tr>`).join('') : ''}`;
+      }).join('');
+      total += sub;
+      return `<tr class="grp"><td colspan="7">Capitolul ${ci + 1}. ${esc(ch.name)}</td></tr>${its}<tr class="sub"><td colspan="6" class="n">Total capitolul ${ci + 1}</td><td class="n">${fmt(sub)}</td></tr>`;
+    }).join('');
+    body += `<p class="small" style="margin:0 0 10px">Cantitățile se calculează din model: pereți și plăci pe straturi, fundații, acoperiș, tâmplărie și finisajele camerelor. Completează codurile de articol și prețurile unitare pentru a obține devizul; se salvează în proiect și ajung în Excel. Clic pe un articol arată detalierea pe elemente.</p>
+      <div class="tbl-wrap"><table class="tbl boq"><thead><tr><th class="n">Nr.</th><th>Cod articol</th><th>Denumirea lucrării</th><th>U.M.</th><th class="n">Cantitate</th><th>Preț unitar (lei)</th><th class="n">Valoare (lei)</th></tr></thead><tbody>${rows}
+      <tr class="sub"><td colspan="6" class="n">TOTAL fără TVA</td><td class="n">${fmt(total)}</td></tr>
+      <tr class="sub"><td colspan="6" class="n">TVA <input class="field" id="vat" type="number" step="1" value="${vat}" style="width:64px;display:inline-block"> %</td><td class="n">${fmt(total * vat / 100)}</td></tr>
+      <tr class="sub"><td colspan="6" class="n"><b>TOTAL cu TVA</b></td><td class="n"><b>${fmt(total * (1 + vat / 100))}</b></td></tr></tbody></table></div>`;
+  } else if (qtyTab === 'joinery') {
+    const rows = joinerySchedule(A.p);
+    body += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Marcaj</th><th>Tip</th><th class="n">L (m)</th><th class="n">H (m)</th><th class="n">Parapet</th><th>Material</th><th>Vitraj / tip</th><th class="n">Uw</th><th class="n">Buc.</th><th class="n">Arie totală (m²)</th><th>Niveluri</th></tr></thead><tbody>
+      ${rows.map((g) => `<tr class="click" data-id="${g.ids[0]}"><td><b>${g.mark}</b></td><td>${g.o.type === 'window' ? 'Fereastră' : 'Ușă'}</td><td class="n">${fmt(g.o.width)}</td><td class="n">${fmt(g.o.height)}</td><td class="n">${fmt(g.o.sill)}</td><td>${esc(g.o.frame || '')}</td><td>${esc(g.o.glazing || g.o.kind || '')}</td><td class="n">${g.o.uw ?? '—'}</td><td class="n">${g.count}</td><td class="n">${fmt(g.count * g.o.width * g.o.height)}</td><td>${esc([...g.storeys].join(', '))}</td></tr>`).join('')}
+      <tr class="sub"><td colspan="8" class="n">Total</td><td class="n">${rows.reduce((a, g) => a + g.count, 0)}</td><td class="n">${fmt(rows.reduce((a, g) => a + g.count * g.o.width * g.o.height, 0))}</td><td></td></tr></tbody></table></div>`;
+  } else if (qtyTab === 'rooms') {
+    const rows = roomSchedule(A.p);
+    let last = '';
+    body += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nr.</th><th>Denumire</th><th class="n">Arie utilă (m²)</th><th class="n">Perimetru (m)</th><th class="n">Înălțime (m)</th><th>Pardoseală</th><th>Pereți</th><th>Tavan</th></tr></thead><tbody>
+      ${rows.map((x, i) => {
+        const g = x.storey !== last ? `<tr class="grp"><td colspan="8">${esc(x.storey)}</td></tr>` : ''; last = x.storey;
+        const end = !rows[i + 1] || rows[i + 1].storey !== x.storey ? `<tr class="sub"><td colspan="2" class="n">Total ${esc(x.storey)}</td><td class="n">${fmt(rows.filter((y) => y.storey === x.storey).reduce((a, y) => a + y.A, 0))}</td><td colspan="5"></td></tr>` : '';
+        return g + `<tr class="click" data-id="${x.z.id}"><td>${esc(x.z.number || '')}</td><td>${esc(x.z.name || '')}</td><td class="n">${fmt(x.A)}</td><td class="n">${fmt(x.P)}</td><td class="n">${fmt(x.H)}</td><td>${esc(FINISH.floor[x.z.floor] || '—')}</td><td>${esc(FINISH.walls[x.z.walls] || '—')}${x.z.walls === 'faianta' ? ` (h ${fmt(x.z.tileH || 2.1)})` : ''}</td><td>${esc(FINISH.ceiling[x.z.ceiling] || '—')}</td></tr>` + end;
+      }).join('')}
+      <tr class="sub"><td colspan="2" class="n">Total clădire</td><td class="n">${fmt(rows.reduce((a, y) => a + y.A, 0))}</td><td colspan="5"></td></tr></tbody></table></div>`;
+  } else {
+    const elems = A.p.elements.filter((e) => e.type !== 'dim');
+    body += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Element</th><th>Nivel</th><th>Structură / material</th><th>Cantități</th></tr></thead><tbody>
+      ${elems.map((e) => `<tr class="click" data-id="${e.id}"><td>${TYPE_NAMES[e.type]} ${e.id.toUpperCase()}${e.name ? ' – ' + esc(e.name) : ''}</td><td>${esc(storeyOf(A.p, e.wall ? byId(A.p, e.wall) || e : e).name)}</td><td>${esc(COMPOSITES[e.composite]?.name || MATERIALS[e.material]?.name || USES[e.use]?.name || '')}</td>
+        <td class="small">${Object.entries(quantities(A.p, e)).map(([k, v]) => `${esc(k)}: <b>${typeof v === 'number' ? fmt(v) : esc(v)}</b>`).join(' · ')}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  openPage('qty', 'Antemăsurătoare și cantități', body, '<button class="btn primary" id="qty-xlsx">Export Excel (.xlsx)</button> <button class="btn" id="qty-csv">CSV</button> ');
+  const pb = $('#page-body');
+  pb.onclick = (e) => {
+    const t = e.target.closest('[data-qt]');
+    if (t) { qtyTab = t.dataset.qt; openQty(); return; }
+    const d = e.target.closest('[data-det]');
+    if (d) { const k = d.dataset.det; if (openDet.has(k)) openDet.delete(k); else openDet.add(k); openQty(); return; }
+    if (e.target.closest('input')) return;
+    const tr = e.target.closest('tr[data-id]');
+    if (tr && tr.dataset.id) selectFromPage(tr.dataset.id);
+  };
+  pb.onchange = (e) => {
+    const c = e.target.dataset.code, pr = e.target.dataset.price;
+    if (c) { (A.p.prices[c] ||= {}).code = e.target.value.trim(); autosave(); }
+    if (pr) { const v = parseFloat(e.target.value); (A.p.prices[pr] ||= {}).price = Number.isFinite(v) ? v : null; autosave(); openQty(); }
+    if (e.target.id === 'vat') { A.p.vat = parseFloat(e.target.value) || 0; autosave(); openQty(); }
+  };
+  $('#qty-xlsx').onclick = async () => {
+    const b = $('#qty-xlsx'); b.disabled = true; b.textContent = 'Se generează…';
+    try {
+      const { exportExcel } = await import('./excel.js');
+      download(await exportExcel(A.p), `Antemasuratoare - ${A.p.name}.xlsx`);
+      toast('Fișier Excel salvat');
+    } catch (err) { console.error(err); toast('Exportul Excel a eșuat: ' + err.message, 6000); }
+    b.disabled = false; b.textContent = 'Export Excel (.xlsx)';
+  };
+  $('#qty-csv').onclick = () => csvDownload(`Antemasuratoare - ${A.p.name}.csv`, [['Nr.', 'Cod articol', 'Capitol', 'Denumirea lucrării', 'U.M.', 'Cantitate', 'Preț unitar', 'Valoare'],
+    ...boq.chapters.flatMap((ch) => ch.items.map((it) => { const pr = A.p.prices[it.key] || {}; return [it.nr, pr.code || '', ch.name, it.desc, it.um, it.qty, pr.price ?? '', pr.price ? pr.price * it.qty : '']; }))]);
 }
 function selectFromPage(id) {
   const el = byId(A.p, id);
@@ -386,7 +462,17 @@ function selectFromPage(id) {
   A.sel = new Set([id]);
   emit('storey'); emit('sel');
 }
+async function makeFootings() {
+  // lățimile din calculul de sarcini, dacă există
+  const widths = {};
+  try { const { computeLoads } = await import('./loads.js'); for (const x of computeLoads(A.p).items) if (x.B) widths[x.id] = x.B; } catch { /* fără sarcini */ }
+  snapshot();
+  const n = generateFootings(A.p, widths);
+  emit('model');
+  toast(n ? `${n} fundații generate (lățimi din calculul de sarcini, minim 60 cm)` : 'Nu există pereți portanți sau stâlpi la nivelul cel mai de jos');
+}
 $('#b-qty').onclick = openQty;
+$('#b-qty').textContent = 'Antemăsurătoare';
 
 async function openLoads() {
   const { computeLoads, snowLoad } = await import('./loads.js');
@@ -458,6 +544,7 @@ $('#b-menu').onclick = () => {
     <button class="btn" value="qty">Cantități</button>
     <button class="btn" value="loads">Calcul sarcini</button>
     <button class="btn" value="storeys">Niveluri…</button>
+    <button class="btn" value="footings">Generează fundațiile sub pereții portanți</button>
     <button class="btn" value="ifc">Export IFC (ARCHICAD, Revit…)</button>
     <button class="btn" value="open3d">Deschide în Model 3D</button>
     <a class="btn" href="viewer/" style="display:flex;align-items:center;text-decoration:none">Vizualizator 3D (IFC, BIMx)…</a>
@@ -475,6 +562,7 @@ $('#b-menu').onclick = () => {
     if (v === 'qty') openQty();
     if (v === 'loads') openLoads();
     if (v === 'storeys') storeysDialog();
+    if (v === 'footings') makeFootings();
     if (v === 'ifc') $('#b-ifc').click();
     if (v === 'open3d') $('#b-open3d').click();
     if (v === 'save') download(new Blob([JSON.stringify(A.p, null, 1)], { type: 'application/json' }), `${A.p.name}.json`);

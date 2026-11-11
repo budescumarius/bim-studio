@@ -15,7 +15,7 @@ export class View3D {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 2.3));
     const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(0.5, 1, 0.3); this.scene.add(sun);
     const fill = new THREE.DirectionalLight(0xffffff, 0.4); fill.position.set(-0.6, 0.4, -0.7); this.scene.add(fill);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(200, 48).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xc9d4bf }));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(200, 48).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xc9d4bf, transparent: true, opacity: 0.8, depthWrite: false }));
     ground.position.y = -0.31; this.scene.add(ground);
     this.cam = new THREE.PerspectiveCamera(50, 1, 0.1, 3000);
     this.cam.position.set(18, 14, 18);
