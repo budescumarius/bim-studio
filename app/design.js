@@ -165,6 +165,8 @@ export function designBeams(p, loads, grade = 'S235') {
     const c = concrete(gk, qk, L, P);
     const t = timber(gk, qk, L, P);
     const warn = [];
+    const along = p.elements.find((w) => w.type === 'wall' && w.storey === el.storey && [el.a, el.b].every((q) => projectOnSegment_(q, w.a, w.b).d < w.thickness / 2 + 0.02));
+    if (along) warn.push(`Grinda stă în lungul peretelui ${along.id.toUpperCase()} (în grosimea lui): în 3D e ascunsă de perete – bifează „Structură” în vederea 3D ca s-o vezi. Dacă e o centură, nu e nevoie de dimensionare ca grindă.`);
     if (!r.trib) warn.push('Grinda nu preia direct o placă: verifică stabilitatea laterală (flambaj prin încovoiere-răsucire) la oțel.');
     // reazeme pe zidărie → verificarea presiunii locale și cuzinet de beton
     const pads = [];
@@ -300,7 +302,7 @@ export function designPad(R, wallCoreT, fd, beamW) {
 }
 
 // ------------------------------------------------------------------ buiandrugi (grinzi peste goluri în pereți)
-import { MATERIALS as M_, beamEndSupports as beamEndSupports_, wallCore as wc_, lintelOf as lo_, layersOf as la_, isOpening as io_, LINTEL_BEARING } from './model.js';
+import { MATERIALS as M_, projectOnSegment as projectOnSegment_, beamEndSupports as beamEndSupports_, wallCore as wc_, lintelOf as lo_, layersOf as la_, isOpening as io_, LINTEL_BEARING } from './model.js';
 export function designLintels(p, loads, grade = 'S235') {
   const P = loads.params;
   const out = [];

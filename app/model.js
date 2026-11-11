@@ -344,7 +344,12 @@ export function beamEndSupports(p, b) {
     for (const e of p.elements) {
       if (e.storey !== b.storey) continue;
       let d = Infinity;
-      if (e.type === 'wall') d = projectOnSegment(pt, e.a, e.b).d - e.thickness / 2;
+      if (e.type === 'wall') {
+        // un perete paralel cu grinda nu e reazem (grinda stă în lungul lui)
+        const u = norm(sub(b.b, b.a)), w = norm(sub(e.b, e.a));
+        if (Math.abs(u[0] * w[0] + u[1] * w[1]) > 0.9) continue;
+        d = projectOnSegment(pt, e.a, e.b).d - e.thickness / 2;
+      }
       else if (e.type === 'column') d = dist(pt, e.p) - Math.max(e.w, e.d) / 2;
       else continue;
       if (d < 0.4 && (!best || d < best.d)) best = { e, d, pt };

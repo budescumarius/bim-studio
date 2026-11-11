@@ -37,11 +37,15 @@ export class PlanEditor {
     this.cv.width = Math.round(r.width * k); this.cv.height = Math.round(r.height * k);
     this.W = r.width; this.H = r.height; this.k = k;
     this.dirty = true;
+    // planul a fost încadrat cât era ascuns (vederea 3D) → încadrează acum, când are dimensiune
+    if (this.W > 20 && this.H > 20 && (this.needFit || !(this.v.s > 2))) this.fit();
   }
   toScreen(p) { return [(p[0] - this.v.cx) * this.v.s + this.W / 2, this.H / 2 - (p[1] - this.v.cy) * this.v.s]; }
   toWorld(x, y) { return [(x - this.W / 2) / this.v.s + this.v.cx, (this.H / 2 - y) / this.v.s + this.v.cy]; }
   invalidate() { this.dirty = true; }
   fit() {
+    if (!(this.W > 20 && this.H > 20)) { this.needFit = true; return this.invalidate(); }
+    this.needFit = false;
     const els = A.p.elements.filter((e) => e.storey === A.storey);
     const pts = els.flatMap((e) => e.pts || [e.a, e.b, e.p].filter(Boolean));
     if (!pts.length) { this.v = { s: Math.max(8, Math.min(this.W || 600, this.H || 600) / 14), cx: 5, cy: 4 }; return this.invalidate(); }

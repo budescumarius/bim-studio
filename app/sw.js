@@ -1,5 +1,5 @@
 // Service worker BIM Studio: aplicația funcționează offline după prima încărcare.
-const VERSION = 'bim-studio-v5';
+const VERSION = 'bim-studio-v6';
 const ASSETS = [
   './', './index.html', './cad.css', './main.js', './model.js', './state.js', './editor2d.js', './geometry3d.js',
   './view3d.js', './loads.js', './ifc-export.js', './boq.js', './excel.js', './design.js', './manifest.webmanifest',

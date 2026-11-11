@@ -1,5 +1,6 @@
 // BIM Studio – Proiectare: interfața aplicației (unelte, proprietăți, niveluri, cantități, sarcini, export).
-import { MATERIALS, USES, TYPE_NAMES, COMPOSITES, FINISH, newProject, sampleProject, quantities, byId, sortedStoreys, storeyOf, polyArea, compositeThickness, coreMaterial, generateFootings, openingMarks } from './model.js';
+import { MATERIALS, USES, TYPE_NAMES, COMPOSITES, FINISH, newProject, sampleProject, quantities, byId, sortedStoreys, storeyOf, polyArea, compositeThickness, coreMaterial, generateFootings, openingMarks, lintelOf, beamEndSupports, wallCore, LINTEL_BEARING } from './model.js';
+import { PROFILES, profileByName } from './design.js';
 import { A, emit, on, snapshot, undo, redo, deleteElements } from './state.js';
 import { PlanEditor, linkedEnds, syncFootings } from './editor2d.js';
 
@@ -212,9 +213,9 @@ const compOpts = (kind) => [['', '— un singur material (grosimea de mai jos) �
 const optsOf = (o) => Object.entries(o);
 const FIELDS = {
   wall: [['composite', 'Structură (straturi)', 'sel', compOpts('wall')], ['thickness', 'Grosime totală (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['base', 'Decalaj bază (m)', 'm'], ['material', 'Material (fără straturi)', 'sel', matOpts((m) => ['beton', 'zidarie', 'usor', 'lemn', 'otel'].includes(m.kind))], ['bearing', 'Perete portant (preia încărcări)', 'chk'], ['exterior', 'Perete exterior', 'chk'], ['flipLayers', 'Inversează straturile (fața exterioară pe cealaltă parte)', 'chk'], ['plaster', 'Tencuit pe ambele fețe (fără straturi)', 'chk']],
-  door: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Prag (m)', 'm'], ['kind', 'Tip', 'sel', [['interioară', 'Interioară'], ['exterioară', 'Exterioară (intrare)'], ['metalică', 'Metalică / tehnică'], ['glisantă', 'Glisantă']]], ['frame', 'Material', 'sel', [['lemn', 'Lemn / MDF'], ['PVC', 'PVC'], ['aluminiu', 'Aluminiu'], ['metal', 'Metal']]], ['flip', 'Deschidere pe partea cealaltă', 'chk'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie / beton)'], ['none', 'Fără buiandrug']]], ['name', 'Denumire', 'text']],
-  window: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Parapet (m)', 'm'], ['frame', 'Material ramă', 'sel', [['PVC', 'PVC'], ['aluminiu', 'Aluminiu cu barieră termică'], ['lemn', 'Lemn stratificat']]], ['glazing', 'Vitraj', 'sel', [['Tripan Low-E', 'Tripan Low-E'], ['Dublu Low-E', 'Dublu Low-E'], ['Dublu Low-E securizat', 'Dublu Low-E securizat']]], ['uw', 'Uw (W/m²K)', 'num'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie / beton)'], ['none', 'Fără buiandrug']]], ['name', 'Denumire', 'text']],
-  gap: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Cota de jos a golului (m)', 'm'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie / beton)'], ['none', 'Fără buiandrug']]], ['lintelH', 'Înălțime buiandrug (cm)', 'cm'], ['name', 'Denumire', 'text']],
+  door: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Prag (m)', 'm'], ['kind', 'Tip', 'sel', [['interioară', 'Interioară'], ['exterioară', 'Exterioară (intrare)'], ['metalică', 'Metalică / tehnică'], ['glisantă', 'Glisantă']]], ['frame', 'Material', 'sel', [['lemn', 'Lemn / MDF'], ['PVC', 'PVC'], ['aluminiu', 'Aluminiu'], ['metal', 'Metal']]], ['flip', 'Deschidere pe partea cealaltă', 'chk'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie)'], ['none', 'Fără buiandrug']]], ['name', 'Denumire', 'text']],
+  window: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Parapet (m)', 'm'], ['frame', 'Material ramă', 'sel', [['PVC', 'PVC'], ['aluminiu', 'Aluminiu cu barieră termică'], ['lemn', 'Lemn stratificat']]], ['glazing', 'Vitraj', 'sel', [['Tripan Low-E', 'Tripan Low-E'], ['Dublu Low-E', 'Dublu Low-E'], ['Dublu Low-E securizat', 'Dublu Low-E securizat']]], ['uw', 'Uw (W/m²K)', 'num'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie)'], ['none', 'Fără buiandrug']]], ['name', 'Denumire', 'text']],
+  gap: [['width', 'Lățime (m)', 'm'], ['height', 'Înălțime (m)', 'm'], ['sill', 'Cota de jos a golului (m)', 'm'], ['lintel', 'Buiandrug deasupra', 'sel', [['auto', 'Da (automat la zidărie)'], ['none', 'Fără buiandrug']]], ['lintelH', 'Înălțime buiandrug (cm)', 'cm'], ['name', 'Denumire', 'text']],
   slab: [['composite', 'Structură (straturi)', 'sel', compOpts('slab')], ['thickness', 'Grosime totală (cm)', 'cm'], ['offset', 'Decalaj față de nivel (m)', 'm'], ['material', 'Material (fără straturi)', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['use', 'Folosință (încărcare utilă)', 'sel', Object.entries(USES).map(([k, u]) => [k, `${u.name} · ${u.q} kN/m²`])], ['finishes', 'Alte straturi permanente (kN/m²)', 'num'], ['mode', 'Mod de desen', 'sel', [['rect', 'Dreptunghi'], ['poly', 'Poligon'], ['auto', 'Clic în cameră (automat)']], 'tool']],
   column: [['w', 'Latura x (cm)', 'cm'], ['d', 'Latura y (cm)', 'cm'], ['height', 'Înălțime (m)', 'm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel', 'zidarie'].includes(m.kind))]],
   beam: [['w', 'Lățime (cm)', 'cm'], ['h', 'Înălțime (cm)', 'cm'], ['material', 'Material', 'sel', matOpts((m) => ['beton', 'lemn', 'otel'].includes(m.kind))], ['padA', 'Cuzineți la capete: lungime (cm, 0 = fără)', 'cm'], ['padH', 'Cuzineți: înălțime (cm)', 'cm']],
@@ -251,8 +252,56 @@ function readField(inp) {
   return kind === 'cm' ? n / 100 : n;
 }
 
+// panoul unui sub-element: buiandrugul unui gol sau cuzineții unei grinzi
+function renderSubSide(side, sid) {
+  const [base, sub] = sid.split(':');
+  const el = byId(A.p, base);
+  if (!el) return false;
+  const marks = openingMarks(A.p);
+  const profOpts = Object.values(PROFILES).flat().map((x) => [x.name, x.name]);
+  let fields, info = [], title;
+  if (sub === 'lintel') {
+    const lin = lintelOf(A.p, el);
+    title = `Buiandrug ${marks.get(el.id) || el.id.toUpperCase()}`;
+    const steel = el.lintelType === 'otel';
+    fields = [['lintelType', 'Material', 'sel', [['beton', 'Beton armat C25/30'], ['otel', 'Profil laminat (oțel)']]], ['lintelH', 'Înălțime (cm)', 'cm'],
+      ...(steel ? [['lintelProfile', 'Profil', 'sel', profOpts], ['lintelN', 'Număr de profile alăturate', 'sel', [['1', '1'], ['2', '2']]]] : [['lintelRebar', 'Armare', 'text']])];
+    if (lin) {
+      const pr = steel && el.lintelProfile && profileByName(el.lintelProfile);
+      info = [['Lungime (cu rezemări)', fmt(lin.len) + ' m'], ['Rezemare în zid', `${fmt(LINTEL_BEARING)} m la fiecare capăt`], ['Lumina golului', fmt(el.width) + ' m'], ['Lățime (zidăria)', fmt(lin.core.t) + ' m'],
+        pr ? ['Greutate oțel', `${fmt((el.lintelN || 1) * pr.G * lin.len, 1)} kg`] : ['Volum beton', `${fmt(lin.len * lin.core.t * lin.h, 3)} m³`]];
+    } else info = [['', el.lintel === 'none' ? 'Golul nu are buiandrug.' : 'Peretele nu e din zidărie – nu are nevoie de buiandrug.']];
+  } else if (sub === 'pads') {
+    title = `Cuzineți grindă ${el.id.toUpperCase()}`;
+    fields = [['padA', 'Lungime în lungul zidului (cm)', 'cm'], ['padH', 'Înălțime (cm)', 'cm']];
+    for (const s of beamEndSupports(A.p, el)) if (s && s.e.type === 'wall') info.push([`Pe peretele ${s.e.id.toUpperCase()}`, `${Math.round(el.padA * 100)}×${Math.round(wallCore(s.e).t * 100)}×${Math.round((el.padH || 0.2) * 100)} cm`]);
+  } else return false;
+  const v = (k) => k === 'lintelN' ? String(el.lintelN || 1) : k === 'lintelType' ? el.lintelType || 'beton' : k === 'lintelH' ? el.lintelH || 0.25 : k === 'padH' ? el.padH || 0.2 : el[k];
+  side.innerHTML = `<h3>${esc(title)}</h3>
+    <div class="form" id="form">${fields.map((f) => fieldHtml(f, v(f[0]), false)).join('')}</div>
+    <table class="kv"><tbody>${info.map(([k, x]) => `<tr><td>${esc(k)}</td><td>${esc(x)}</td></tr>`).join('')}</tbody></table>
+    <div class="acts">${sub === 'lintel' ? '<button class="btn primary" id="sub-design">Dimensionează</button>' : '<button class="btn primary" id="sub-design">Dimensionează grinda</button>'}<button class="btn" id="sub-parent">Selectează ${sub === 'lintel' ? 'golul' : 'grinda'}</button><button class="btn danger" id="sub-del">Șterge ${sub === 'lintel' ? 'buiandrugul' : 'cuzineții'}</button></div>
+    <p class="hint">${sub === 'lintel' ? 'Buiandrugul se selectează separat de ușă / fereastră: dă clic pe el în 3D.' : 'Cuzineții se selectează separat de grindă: dă clic pe ei în 3D (bifează „Structură” ca să-i vezi prin perete).'}</p>`;
+  $('#form').onchange = (e) => {
+    const k = e.target.dataset.k; if (!k) return;
+    let val = readField(e.target); if (val === undefined) return;
+    snapshot();
+    if (k === 'lintelN') val = +val;
+    if (k === 'lintelType' && val === 'otel' && !el.lintelProfile) { el.lintelProfile = 'IPE 120'; el.lintelGrade = 'S235'; el.lintelH = 0.12; }
+    if (k === 'lintelProfile') { const pr = profileByName(val); if (pr) el.lintelH = pr.h / 1000; }
+    el[k] = val;
+    if (sub === 'lintel') el.lintel = 'auto';
+    emit('model');
+  };
+  $('#sub-design').onclick = sub === 'lintel' ? openLintels : openBeams;
+  $('#sub-parent').onclick = () => { A.sel = new Set([el.id]); emit('sel'); };
+  $('#sub-del').onclick = () => { snapshot(); deleteElements([sid]); emit('model'); };
+  return true;
+}
+
 function renderSide() {
   const side = $('#side-body');
+  if (A.sel.size === 1 && [...A.sel][0].includes(':') && renderSubSide(side, [...A.sel][0])) return;
   const sel = [...A.sel].map((id) => byId(A.p, id)).filter(Boolean);
   if (!sel.length) {
     const t = A.tool;
@@ -285,6 +334,8 @@ function renderSide() {
     ${q && Object.keys(q).length ? `<h4>Cantități</h4><table class="kv"><tbody>${Object.entries(q).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>`).join('')}</tbody></table>` : ''}
     ${sel.length === 1 && first.type === 'column' ? `<h4>Secțiune</h4><p class="hint">${first.profile ? `<b>${esc(first.profile)} ${esc(first.grade || '')}</b>` : `${esc(MATERIALS[first.material]?.name || '')} ${Math.round(first.w * 100)}×${Math.round(first.d * 100)} cm`}${first.rebar && !first.profile && first.material === 'beton' ? `<br>${esc(first.rebar)}` : ''}</p><button class="btn primary" id="s-design-col">Dimensionează stâlpul</button>` : ''}
     ${sel.length === 1 && first.type === 'beam' ? `<h4>Secțiune</h4><p class="hint">${first.profile ? `<b>${esc(first.profile)} ${esc(first.grade || '')}</b>` : `${esc(MATERIALS[first.material]?.name || '')} ${Math.round(first.w * 100)}×${Math.round(first.h * 100)} cm`}${first.rebar && !first.profile && first.material === 'beton' ? `<br>${esc(first.rebar)}` : ''}</p><button class="btn primary" id="s-design">Dimensionează grinda</button>` : ''}
+    ${sel.length === 1 && lintelOf(A.p, first) ? `<button class="btn" id="s-lintel">Selectează buiandrugul</button>` : ''}
+    ${sel.length === 1 && first.type === 'beam' && first.padA > 0 ? `<button class="btn" id="s-pads">Selectează cuzineții</button>` : ''}
     ${loadInfo(sel)}
     <div class="acts"><button class="btn" id="s-move" title="Mută cu o distanță exactă">Mută cu…</button>${sel.length === 1 && first.type === 'wall' ? '<button class="btn" id="s-offset" title="Mută peretele paralel cu el însuși">Decalează…</button>' : ''}<button class="btn" id="s-dup" title="Ctrl+D">Copiază alături</button><button class="btn danger" id="s-del">Șterge</button></div>
     ${sel.some((e) => e.type === 'wall') ? '<p class="hint">Mutarea unui perete (prin tragere sau cu „Mută cu…”) întinde pereții legați de capetele lui; ușile, ferestrele, golurile și fundația lui merg odată cu el.</p>' : ''}`;
@@ -299,6 +350,8 @@ function renderSide() {
   $('#s-del').onclick = () => { snapshot(); deleteElements([...A.sel]); emit('model'); };
   $('#s-dup').onclick = duplicate;
   $('#s-move').onclick = () => moveDialog(sel);
+  if ($('#s-lintel')) $('#s-lintel').onclick = () => { A.sel = new Set([first.id + ':lintel']); emit('sel'); };
+  if ($('#s-pads')) $('#s-pads').onclick = () => { A.sel = new Set([first.id + ':pads']); emit('sel'); };
   if ($('#s-offset')) $('#s-offset').onclick = () => moveDialog(sel, true);
   if ($('#s-design')) $('#s-design').onclick = openBeams;
   if ($('#s-design-col')) $('#s-design-col').onclick = openColumns;
@@ -359,6 +412,20 @@ $('#b-fit3d').onclick = () => view3d?.fit();
 $('#c-grid').onchange = (e) => { plan.gridSnap = e.target.checked; };
 $('#c-upto').onchange = (e) => { if (view3d) { view3d.upTo = e.target.checked; view3d.invalidate('model'); } };
 $('#c-zones').onchange = (e) => { if (view3d) { view3d.showZones = e.target.checked; view3d.invalidate('model'); } };
+$('#c-xray').onchange = (e) => { if (view3d) { view3d.xray = e.target.checked; view3d.invalidate('model'); } };
+// „Vezi în 3D” din paginile de dimensionare: selectează elementul, arată structura și centrează camera pe el
+async function showIn3D(id) {
+  selectFromPage(id.split(':')[0]);
+  if (id.includes(':')) { A.sel = new Set([id]); emit('sel'); }
+  if (work.dataset.view === 'plan') setView(narrow.matches ? '3d' : 'split');
+  const v = await ensure3D();
+  v.resize();
+  v.xray = true; $('#c-xray').checked = true;
+  v.invalidate('model');
+  const host = byId(A.p, id);
+  v.focus(id);
+  if (host) toast('Mod „Structură”: pereții sunt transparenți. Debifează „Structură” din colțul vederii 3D ca să revii.', 4000);
+}
 $('#c-loads').onchange = (e) => { A.showLoads = e.target.checked; plan.invalidate(); };
 
 // ---------------------------------------------------------------- reacții la schimbări
@@ -535,14 +602,14 @@ async function openBeams() {
   A.loads = computeLoads(A.p);
   const rows = designBeams(A.p, A.loads, beamGrade);
   const pct = (u) => upill(u);
-  const opt = (x, kind, label, detail) => x ? `<div class="opt"><div><b>${esc(label)}</b> ${pct(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div><button class="btn" data-apply="${kind}" data-beam="${x._id}" data-name="${esc(x.name)}">Aplică</button></div>` : `<div class="opt"><div class="small">${esc(label)}: nicio secțiune din listă nu verifică</div></div>`;
+  const opt = (x, kind, label, detail) => { if (!x) return `<div class="opt"><div class="small">${esc(label)}: nicio secțiune din listă nu verifică</div></div>`; const on = appliedKind(byId(A.p, x._id), kind, x); return `<div class="opt${on ? ' on' : ''}"><div><b>${esc(label)}</b> ${pct(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div>${applyBtn(on, `data-apply="${kind}" data-beam="${x._id}" data-name="${esc(x.name)}"`)}</div>`; };
   const html = designTabs('beams') + `<div class="notice"><b>Dimensionare orientativă (predimensionare).</b> Grinzi simplu rezemate cu încărcare uniformă din calculul de sarcini, combinația SLU 6.10 (γG = ${A.loads.params.gG}, γQ = ${A.loads.params.gQ}) și săgeată ≤ L/250 sub încărcarea caracteristică. Oțel: SR EN 1993-1-1, secțiuni clasa 1–2, talpa comprimată legată de placă. Beton: C25/30, BST500S, SR EN 1992-1-1. Lemn: GL24h, SR EN 1995-1-1. Nu include seismul, torsiunea, încărcările concentrate și verificarea îmbinărilor – proiectul de rezistență se face de un inginer atestat.</div>
     ${UTIL_NOTE}<div class="params" style="grid-template-columns:auto 1fr;align-items:center"><label style="flex-direction:row;align-items:center;gap:8px">Oțel <select id="bgrade"><option ${beamGrade === 'S235' ? 'selected' : ''}>S235</option><option ${beamGrade === 'S355' ? 'selected' : ''}>S355</option></select></label><span class="small">Pentru fiecare familie se alege cel mai ușor profil care verifică toate condițiile. „Aplică” schimbă grinda din model (și în 3D, antemăsurătoare și IFC).</span></div>
     ${rows.length ? rows.map((r) => {
       for (const x of [...r.steel, r.concrete, r.timber]) if (x) x._id = r.id;
       const cur = r.el.profile ? `${r.el.profile} ${r.el.grade || ''}` : `${MATERIALS[r.el.material]?.name || r.el.material} ${Math.round(r.el.w * 100)}×${Math.round(r.el.h * 100)} cm`;
       return `<section class="beam card"><header><b>${esc(r.name)}</b> · ${esc(r.storey)} · L = ${fmt(r.L)} m · g<sub>k</sub> = ${fmt(r.gk)} kN/m (fără greutatea proprie) · q<sub>k</sub> = ${fmt(r.qk)} kN/m <span class="small">· acum: ${esc(cur)}</span>
-        <button class="mini" data-goto="${r.id}">Arată pe plan</button></header>
+        <span class="hbtns">${view3dBtn(r.id)}<button class="mini" data-goto="${r.id}">Arată pe plan</button></span></header>
         ${r.warn.map((w) => `<p class="small" style="color:var(--warn)">${esc(w)}</p>`).join('')}
         ${padHtml(r)}
         <div class="opts">
@@ -557,6 +624,8 @@ async function openBeams() {
   pb.onclick = (e) => {
     const t = e.target.closest('[data-dtab]');
     if (t) { if (t.dataset.dtab === 'cols') openColumns(); if (t.dataset.dtab === 'lintels') openLintels(); return; }
+    const v3 = e.target.closest('[data-v3d]');
+    if (v3) { showIn3D(v3.dataset.v3d); return; }
     const g = e.target.closest('[data-goto]');
     if (g) { selectFromPage(g.dataset.goto); return; }
     const pd = e.target.closest('[data-pad]');
@@ -587,6 +656,17 @@ async function openBeams() {
   };
 }
 
+// varianta aplicată acum pe element (pentru marcajul „✓ Aplicat”)
+const near = (a, b) => Math.abs((a || 0) - (b || 0)) < 0.005;
+function appliedKind(el, kind, x, dim2 = 'h') {
+  if (!x) return false;
+  if (kind === 'steel') return el.profile === x.profile && (el.grade || 'S235') === x.grade;
+  if (kind === 'concrete') return !el.profile && el.material === 'beton' && near(el.w, x.b) && near(el[dim2], x.h);
+  return !el.profile && el.material === 'lemn' && near(el.w, x.b) && near(el[dim2], x.h);
+}
+const applyBtn = (on, attrs) => on ? `<span class="applied">✓ Aplicat</span>` : `<button class="btn" ${attrs}>Aplică</button>`;
+const view3dBtn = (id) => `<button class="mini" data-v3d="${id}">Vezi în 3D</button>`;
+
 function padHtml(r) {
   const ps = (r.pads || []).map((x, i) => x && { ...x, end: i ? 'capătul B' : 'capătul A' }).filter(Boolean);
   if (!ps.length) return '';
@@ -603,14 +683,15 @@ async function openLintels() {
   A.loads = computeLoads(A.p);
   const rows = designLintels(A.p, A.loads, beamGrade);
   const marks = openingMarks(A.p);
-  const opt = (x, kind, id, label, detail) => x ? `<div class="opt"><div><b>${esc(label)}</b> ${upill(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div><button class="btn" data-apply="${kind}" data-op="${id}" data-name="${esc(x.name)}">Aplică</button></div>` : `<div class="opt"><div class="small">${esc(label)}: nicio secțiune nu verifică</div></div>`;
+  const linOn = (o, kind, x) => kind === 'steel' ? o.lintelType === 'otel' && o.lintelProfile === x.profile : (o.lintelType || 'beton') === 'beton' && !!o.lintelRebar && near(o.lintelH, x.h);
+  const opt = (x, kind, id, label, detail) => { if (!x) return `<div class="opt"><div class="small">${esc(label)}: nicio secțiune nu verifică</div></div>`; const on = linOn(byId(A.p, id), kind, x); return `<div class="opt${on ? ' on' : ''}"><div><b>${esc(label)}</b> ${upill(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div>${applyBtn(on, `data-apply="${kind}" data-op="${id}" data-name="${esc(x.name)}"`)}</div>`; };
   const html = designTabs('lintels') + `<div class="notice"><b>Buiandrugi peste goluri (predimensionare).</b> Grindă simplu rezemată cu deschiderea de calcul L = lumina golului + ${Math.round(25)} cm, rezemată ${Math.round(25)} cm în zidărie la fiecare capăt. Încărcări: zidăria de deasupra golului (toată înălțimea, acoperitor) plus încărcările pe care peretele le primește de sus (planșee, pereți), SLU 6.10. Beton C25/30 cu lățimea egală cu zidăria; oțel – profile pereche dacă peretele e gros. Golurile din pereți neportanți ușori nu au nevoie de buiandrug.</div>
     ${UTIL_NOTE}
     ${rows.length ? rows.map((r) => {
       const o = r.o;
       const cur = o.lintelType === 'otel' ? `${o.lintelProfile} ${o.lintelGrade || ''}` : `beton ${Math.round(r.b * 100)}×${Math.round((o.lintelH || 0.25) * 100)} cm${o.lintelRebar ? ' · ' + o.lintelRebar : ''}`;
       return `<section class="beam card"><header><b>${esc(marks.get(o.id) || o.id.toUpperCase())}</b> · ${esc(TYPE_NAMES[o.type])} ${fmt(o.width)}×${fmt(o.height)} m în ${esc(r.wall.id.toUpperCase())} · L = ${fmt(r.L)} m · g<sub>k</sub> = ${fmt(r.gk)} kN/m (zidărie ${fmt(r.above)} m deasupra) · q<sub>k</sub> = ${fmt(r.qk)} kN/m <span class="small">· acum: ${esc(cur)}</span>
-        <button class="mini" data-goto="${o.id}">Arată pe plan</button></header>
+        <span class="hbtns">${view3dBtn(o.id + ':lintel')}<button class="mini" data-goto="${o.id}">Arată pe plan</button></span></header>
         <div class="opts">
           ${opt(r.concrete, 'concrete', o.id, r.concrete ? `Buiandrug ${r.concrete.name}` : 'Beton armat', r.concrete ? `${r.concrete.rebar}; ${r.concrete.stirrups}` : '')}
           ${r.steel.map((x) => opt(x, 'steel', o.id, `${x.n > 1 ? '2 × ' : ''}${x.name}`, `${fmt(x.mass * x.n, 0)} kg${x.n > 1 ? ' (două profile, fiecare preia jumătate din încărcare)' : ''} · decide: ${x.governs}`)).join('')}
@@ -622,6 +703,8 @@ async function openLintels() {
   pb.onclick = (e) => {
     const t = e.target.closest('[data-dtab]');
     if (t) { if (t.dataset.dtab === 'beams') openBeams(); if (t.dataset.dtab === 'cols') openColumns(); return; }
+    const v3 = e.target.closest('[data-v3d]');
+    if (v3) { showIn3D(v3.dataset.v3d); return; }
     const g = e.target.closest('[data-goto]');
     if (g) { selectFromPage(g.dataset.goto); return; }
     const b = e.target.closest('[data-apply]');
@@ -649,7 +732,7 @@ async function openColumns() {
   const { designColumns } = await import('./design.js');
   A.loads = computeLoads(A.p);
   const rows = designColumns(A.p, A.loads, beamGrade, colBeta);
-  const opt = (x, kind, label, detail) => x ? `<div class="opt"><div><b>${esc(label)}</b> ${upill(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div><button class="btn" data-apply="${kind}" data-col="${x._id}" data-name="${esc(x.name)}">Aplică</button></div>` : `<div class="opt"><div class="small">${esc(label)}: nicio secțiune din listă nu verifică</div></div>`;
+  const opt = (x, kind, label, detail) => { if (!x) return `<div class="opt"><div class="small">${esc(label)}: nicio secțiune din listă nu verifică</div></div>`; const on = appliedKind(byId(A.p, x._id), kind, x, 'd'); return `<div class="opt${on ? ' on' : ''}"><div><b>${esc(label)}</b> ${upill(x.util)}${detail ? `<div class="small">${esc(detail)}</div>` : ''}<div class="small">${x.checks.map(esc).join('<br>')}</div></div>${applyBtn(on, `data-apply="${kind}" data-col="${x._id}" data-name="${esc(x.name)}"`)}</div>`; };
   const html = designTabs('cols') + `<div class="notice"><b>Dimensionare orientativă (predimensionare).</b> Stâlpi comprimați centric, cu forța axială din coborârea încărcărilor (SLU 6.10). Oțel: flambaj după ambele axe, curbe b / c, SR EN 1993-1-1. Beton C25/30: compresiune cu excentricitate minimă, imperfecțiuni și efecte de ordinul 2 (curbură nominală), armare minimă 1% și ν ≤ 0,40 (P100-1), SR EN 1992-1-1. Lemn GL24h: flambaj, SR EN 1995-1-1. Nu include momentele din cadre, seismul și verificarea îmbinărilor – proiectul de rezistență se face de un inginer atestat.</div>
     ${UTIL_NOTE}<div class="params" style="grid-template-columns:auto auto 1fr;align-items:center">
       <label style="flex-direction:row;align-items:center;gap:8px">Oțel <select id="bgrade"><option ${beamGrade === 'S235' ? 'selected' : ''}>S235</option><option ${beamGrade === 'S355' ? 'selected' : ''}>S355</option></select></label>
@@ -659,7 +742,7 @@ async function openColumns() {
       for (const x of [...r.steel, r.concrete, r.timber]) if (x) x._id = r.id;
       const cur = r.el.profile ? `${r.el.profile} ${r.el.grade || ''}` : `${MATERIALS[r.el.material]?.name || r.el.material} ${Math.round(r.el.w * 100)}×${Math.round(r.el.d * 100)} cm`;
       return `<section class="beam card"><header><b>${esc(r.name)}</b> · ${esc(r.storey)} · H = ${fmt(r.H)} m · G<sub>k</sub> = ${fmt(r.G, 1)} kN (fără greutatea proprie) · Q<sub>k</sub> = ${fmt(r.Q, 1)} kN <span class="small">· acum: ${esc(cur)}</span>
-        <button class="mini" data-goto="${r.id}">Arată pe plan</button></header>
+        <span class="hbtns">${view3dBtn(r.id)}<button class="mini" data-goto="${r.id}">Arată pe plan</button></span></header>
         <div class="opts">
           ${r.steel.map((x) => opt(x, 'steel', x.name, `${fmt(x.mass, 0)} kg pe stâlp · decide: ${x.governs}`)).join('')}
           ${opt(r.concrete, 'concrete', r.concrete ? r.concrete.name : 'Beton armat', r.concrete ? `${r.concrete.rebar}; ${r.concrete.stirrups}` : '')}
@@ -675,6 +758,8 @@ async function openColumns() {
   pb.onclick = (e) => {
     const t = e.target.closest('[data-dtab]');
     if (t) { if (t.dataset.dtab === 'beams') openBeams(); if (t.dataset.dtab === 'lintels') openLintels(); return; }
+    const v3 = e.target.closest('[data-v3d]');
+    if (v3) { showIn3D(v3.dataset.v3d); return; }
     const g = e.target.closest('[data-goto]');
     if (g) { selectFromPage(g.dataset.goto); return; }
     const b = e.target.closest('[data-apply]');
