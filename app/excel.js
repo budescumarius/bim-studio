@@ -1,5 +1,6 @@
 // Export Excel (.xlsx) cu ExcelJS: antemăsurătoare cu formule, detaliere, tâmplărie, camere și elemente.
 import { MATERIALS, COMPOSITES, FINISH, USES, TYPE_NAMES, storeyOf, byId, quantities, sortedStoreys } from './model.js';
+import { t } from './i18n.js';
 import { computeBOQ, joinerySchedule, roomSchedule, structureSchedule } from './boq.js';
 
 const EXCELJS = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
@@ -258,6 +259,14 @@ export async function exportExcel(p) {
     cellsBorder(row, 4);
   }
 
+  // limba interfeței: traduce numele foilor și textele din celule (formulele rămân neatinse)
+  for (const ws of wb.worksheets) {
+    ws.name = t(ws.name).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31);
+    ws.eachRow((row) => row.eachCell((cell) => {
+      if (typeof cell.value === 'string') cell.value = t(cell.value);
+      else if (cell.value?.richText) for (const r of cell.value.richText) r.text = t(r.text);
+    }));
+  }
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }

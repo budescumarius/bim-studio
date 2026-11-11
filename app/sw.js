@@ -1,8 +1,8 @@
 // Service worker BIM Studio: aplicația funcționează offline după prima încărcare.
-const VERSION = 'bim-studio-v8';
+const VERSION = 'bim-studio-v9';
 const ASSETS = [
   './', './index.html', './cad.css', './main.js', './model.js', './state.js', './editor2d.js', './geometry3d.js',
-  './view3d.js', './loads.js', './ifc-export.js', './boq.js', './excel.js', './design.js', './pdf.js', './manifest.webmanifest',
+  './view3d.js', './loads.js', './ifc-export.js', './boq.js', './excel.js', './design.js', './pdf.js', './i18n.js', './i18n-fr.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './viewer/', './viewer/index.html', './viewer/bim.css', './viewer/main.js', './viewer/demo.js', './viewer/ifc.js',
   './viewer/bimx.js', './viewer/sheets.js',
