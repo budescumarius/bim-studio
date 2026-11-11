@@ -76,11 +76,11 @@ function steel(gk, qk, L, grade, fam, P) {
 }
 
 const BARS = [12, 14, 16, 18, 20, 22, 25, 28];
-function concrete(gk, qk, L, P) {
+function concrete(gk, qk, L, P, bFixed, hMin) {
   const fcd = 25 / 1.5, fyd = 500 / 1.15, fck = 25;
-  let h = Math.max(0.3, Math.ceil(L / 12 / 0.05) * 0.05);
-  for (let iter = 0; iter < 30; iter++, h += 0.05) {
-    const b = Math.max(0.25, Math.round(h * 0.5 / 0.05) * 0.05);
+  let h = Math.max(hMin ?? 0.3, Math.ceil(L / 12 / 0.05) * 0.05);
+  for (let iter = 0; iter < 30; iter++, h = Math.round((h + 0.05) * 100) / 100) {
+    const b = bFixed || Math.max(0.25, Math.round(h * 0.5 / 0.05) * 0.05);
     const d = h - 0.05;
     const g = gk + 25 * b * h;
     const qEd = P.gG * g + P.gQ * qk;
@@ -115,7 +115,7 @@ function concrete(gk, qk, L, P) {
     const VRd = Math.max(VRdc, Number.isFinite(s) ? Asw / s * 0.9 * d * fyd * 1000 * 2.5 : 0);
     const util = Math.max(As / AsProv, VEd / VRd, (L / d) / 18);
     return {
-      name: `Beton C25/30 ${Math.round(b * 100)}×${Math.round(h * 100)} cm`, b, h, MEd, VEd, util,
+      name: `Beton C25/30 ${Math.round(b * 100)}×${Math.round(h * 100)} cm`, b, h, MEd, VEd, util, As,
       rebar: `${pick.n}Ø${pick.D} jos (${(pick.n * pick.a1).toFixed(2)} cm² ≥ ${As.toFixed(2)} cm²), 2Ø12 sus constructiv`,
       stirrups: `etrieri Ø8/${Math.round(s * 100)} cm${VEd > VRdc ? '' : ' (minim constructiv)'}`,
       checks: [`M_Ed = ${MEd.toFixed(1)} kNm; μ = ${mu.toFixed(3)} ≤ 0,295; As,nec = ${As.toFixed(2)} cm²`, `V_Ed = ${VEd.toFixed(1)} kN; V_Rd,c = ${VRdc.toFixed(1)} kN`, `L/d = ${(L / d).toFixed(1)} ≤ 18 (control simplificat al săgeții)`],
@@ -166,7 +166,18 @@ export function designBeams(p, loads, grade = 'S235') {
     const t = timber(gk, qk, L, P);
     const warn = [];
     if (!r.trib) warn.push('Grinda nu preia direct o placă: verifică stabilitatea laterală (flambaj prin încovoiere-răsucire) la oțel.');
-    out.push({ id: el.id, name: r.name, storey: r.storey, L, gk, qk, steel: fams, concrete: c, timber: t, warn, el });
+    // reazeme pe zidărie → verificarea presiunii locale și cuzinet de beton
+    const pads = [];
+    for (const sup of beamEndSupports_(p, el)) {
+      if (!sup || sup.e.type !== 'wall') { pads.push(null); continue; }
+      const core = wc_(sup.e);
+      if (M_[core.mat]?.kind !== 'zidarie') { pads.push(null); continue; }
+      const bw = c ? c.b : (fams[0] ? fams[0].b : 0.2);
+      const R = (P.gG * (gk + (c ? 25 * c.b * c.h : 1)) + P.gQ * qk) * L / 2;
+      pads.push({ wall: sup.e, ...designPad(R, core.t, M_[core.mat].fd, bw) });
+    }
+    if (pads.some((x) => x && x.needed)) warn.push('Presiunea locală sub grindă depășește rezistența zidăriei: este necesar cuzinet de beton armat.');
+    out.push({ id: el.id, name: r.name, storey: r.storey, L, gk, qk, steel: fams, concrete: c, timber: t, warn, el, pads });
   }
   return out;
 }
@@ -270,6 +281,46 @@ export function designColumns(p, loads, grade = 'S235', beta = 1.0) {
       concrete: concreteColumn(G, Q, H, beta, P), timber: timberColumn(G, Q, H, beta, P),
       warn: r.foundation ? [] : [],
     });
+  }
+  return out;
+}
+
+
+// ------------------------------------------------------------------ cuzineți (reazemul grinzii pe zidărie)
+// Presiunea locală sub reazem: σ = R / (a·t) ≤ β·f_d, β = 1,25 (încărcare concentrată, SR EN 1996-1-1, 6.1.3)
+export function designPad(R, wallCoreT, fd, beamW) {
+  const beta = 1.25;
+  const sigmaBeam = R / 1000 / (beamW * Math.min(wallCoreT, 0.25)); // MPa, grinda direct pe zidărie (rezemare ≤ 25 cm)
+  const Areq = R / 1000 / (beta * fd); // m²
+  const a = Math.max(0.3, Math.ceil(Areq / wallCoreT / 0.05) * 0.05, Math.ceil((beamW + 0.2) / 0.05) * 0.05);
+  const h = a > 0.6 ? 0.3 : 0.2;
+  const sigma = R / 1000 / (a * wallCoreT);
+  return { R, a, h, sigma, sigmaBeam, fd, limit: beta * fd, needed: sigmaBeam > beta * fd, util: sigma / (beta * fd),
+    check: `R_Ed = ${R.toFixed(1)} kN; fără cuzinet σ = ${sigmaBeam.toFixed(2)} MPa ${sigmaBeam > beta * fd ? '>' : '≤'} 1,25·f_d = ${(beta * fd).toFixed(2)} MPa; cu cuzinet ${Math.round(a * 100)}×${Math.round(wallCoreT * 100)}×${Math.round(h * 100)} cm: σ = ${sigma.toFixed(2)} MPa` };
+}
+
+// ------------------------------------------------------------------ buiandrugi (grinzi peste goluri în pereți)
+import { MATERIALS as M_, beamEndSupports as beamEndSupports_, wallCore as wc_, lintelOf as lo_, layersOf as la_, isOpening as io_, LINTEL_BEARING } from './model.js';
+export function designLintels(p, loads, grade = 'S235') {
+  const P = loads.params;
+  const out = [];
+  for (const o of p.elements.filter(io_)) {
+    const lin = lo_(p, { ...o, lintelH: o.lintelH || 0.25 });
+    if (!lin) continue;
+    const w = lin.w;
+    const L = o.width + LINTEL_BEARING; // deschiderea de calcul ≈ lumina + o jumătate de rezemare la fiecare capăt
+    const r = loads.items.find((x) => x.id === w.id);
+    const Lw = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
+    // zidăria de deasupra golului + încărcările primite de perete la partea de sus (planșee, pereți de deasupra)
+    const above = Math.max(0, w.height - o.sill - o.height);
+    const wallG = la_(w).reduce((a, l) => a + (M_[l.m]?.gamma || 0) * l.t, 0) * above;
+    const recG = r ? Math.max(0, (r.G - r.self) / Lw) : 0, recQ = r ? r.Q / Lw : 0;
+    const gk = wallG + recG, qk = recQ;
+    const b = Math.max(0.15, Math.round(lin.core.t * 100) / 100);
+    const c = concrete(gk, qk, L, P, b, 0.2);
+    const n = b > 0.2 ? 2 : 1; // la zidăria groasă: două profile alăturate, fiecare preia jumătate
+    const st = ['IPE', 'HEA'].map((f) => steel(gk / n, qk / n, L, grade, f, P)).filter(Boolean).map((x) => ({ ...x, n }));
+    out.push({ id: o.id, o, wall: w, L, gk, qk, above, b, concrete: c, steel: st, fd: M_[lin.core.mat]?.fd || 0 });
   }
   return out;
 }

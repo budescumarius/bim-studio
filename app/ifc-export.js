@@ -1,7 +1,7 @@
 // Export IFC4 (Reference View): pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri,
 // spații (camere), materiale, culori, seturi de proprietăți și cantități de bază.
 // Fișierul se poate deschide în ARCHICAD, Revit, Allplan, Tekla, BIMcollab, programe de calcul structural etc.
-import { beamTop, MATERIALS, USES, COMPOSITES, layersOf, footingExtensions, sortedStoreys, storeyOf, byId, wallLength, wallExtensions, polyArea, quantities, norm, sub, dist } from './model.js';
+import { beamTop, lintelOf, beamEndSupports, wallCore, projectOnSegment, MATERIALS, USES, COMPOSITES, layersOf, footingExtensions, sortedStoreys, storeyOf, byId, wallLength, wallExtensions, polyArea, quantities, norm, sub, dist } from './model.js';
 import { elementGeometry } from './geometry3d.js';
 import { profileByName } from './design.js';
 
@@ -229,14 +229,25 @@ export function exportIfc(p) {
   }
   // goluri + uși/ferestre
   for (const el of p.elements) {
-    if (el.type !== 'door' && el.type !== 'window') continue;
+    if (el.type !== 'door' && el.type !== 'window' && el.type !== 'gap') continue;
     const W = wallIfc.get(el.wall);
     if (!W) continue;
+    const st0 = storeyOf(p, W.el).id;
+    // buiandrugul de deasupra golului
+    const lin = lintelOf(p, el);
+    if (lin) {
+      const pr = lin.type === 'otel' && lin.profile && profileByName(lin.profile);
+      const lb = e(`IFCBEAM('${guid()}',${owner},${str('Buiandrug ' + el.id.toUpperCase() + (pr ? ' ' + pr.name : ''))},$,$,${local(W.pl, 0, 0, 0)},${shape([rectSolid((lin.u0 + lin.u1) / 2, (lin.core.lo + lin.core.hi) / 2, lin.len, lin.core.t, lin.h, lin.z0)], 'SweptSolid', pr ? 0x6f7f95 : 0xb8bbc0)},$,.LINTEL.)`);
+      contained.get(st0).push(lb);
+      props(lb, 'Pset_BeamCommon', { LoadBearing: true, Span: el.width });
+      useMat(pr ? 'otel' : 'beton', lb);
+    }
     const host = W.el, t = host.thickness;
     const h = Math.min(el.height, host.height - el.sill);
     const opPl = local(W.pl, el.pos, 0, el.sill);
-    const op = e(`IFCOPENINGELEMENT('${guid()}',${owner},'Gol',$,$,${opPl},${shape([rectSolid(0, 0, el.width, t + 0.1, h)])},$,.OPENING.)`);
+    const op = e(`IFCOPENINGELEMENT('${guid()}',${owner},${str(el.type === 'gap' ? el.name || 'Gol în perete' : 'Gol')},$,$,${opPl},${shape([rectSolid(0, 0, el.width, t + 0.1, h)])},$,.OPENING.)`);
     e(`IFCRELVOIDSELEMENT('${guid()}',${owner},$,$,${W.w},${op})`);
+    if (el.type === 'gap') continue; // gol liber, fără tâmplărie
     const fillPl = local(opPl, 0, 0, 0);
     const isWin = el.type === 'window';
     const geo = shape([rectSolid(0, 0, el.width, isWin ? 0.07 : 0.05, h)], 'SweptSolid', isWin ? 0x9cc8e8 : 0x9a6b43, isWin ? 0.55 : 0);
@@ -247,6 +258,22 @@ export function exportIfc(p) {
     const st = storeyOf(p, host).id;
     contained.get(st).push(f);
     props(f, isWin ? 'Pset_WindowCommon' : 'Pset_DoorCommon', { IsExternal: !!host.exterior });
+  }
+  // cuzineți sub capetele grinzilor pe zidărie
+  for (const b of p.elements.filter((x) => x.type === 'beam' && x.padA > 0)) {
+    const pr = b.profile && profileByName(b.profile);
+    const bottom = beamTop(p, b) - (pr ? pr.h / 1000 : b.h);
+    for (const sup of beamEndSupports(p, b)) {
+      if (!sup || sup.e.type !== 'wall') continue;
+      const W = wallIfc.get(sup.e.id);
+      if (!W) continue;
+      const core = wallCore(sup.e), r = projectOnSegment(sup.pt, sup.e.a, sup.e.b);
+      const ws = storeyOf(p, sup.e), h = b.padH || 0.2;
+      const z1 = Math.min(bottom, ws.elev + (sup.e.base || 0) + sup.e.height) - ws.elev - (sup.e.base || 0);
+      const px = e(`IFCBUILDINGELEMENTPROXY('${guid()}',${owner},${str('Cuzinet grindă ' + b.id.toUpperCase())},'Cuzinet beton armat C25/30',$,${local(W.pl, 0, 0, 0)},${shape([rectSolid(r.along, (core.lo + core.hi) / 2, b.padA, core.t, h, z1 - h)], 'SweptSolid', 0x8f969f)},$,.ELEMENT.)`);
+      contained.get(ws.id).push(px);
+      useMat('beton', px);
+    }
   }
   for (const [sid, list] of contained) if (list.length) e(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${guid()}',${owner},$,$,(${list.join(',')}),${storeyIfc.get(sid).st})`);
   for (const [sid, list] of spaces) if (list.length) e(`IFCRELAGGREGATES('${guid()}',${owner},$,$,${storeyIfc.get(sid).st},(${list.join(',')}))`);

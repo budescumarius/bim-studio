@@ -65,14 +65,14 @@ export const FINISH = {
 // Marcajele tâmplăriei (F1, F2 … / U1, U2 …), după tip și dimensiuni
 export function openingMarks(p) {
   const marks = new Map(), groups = new Map();
-  const ops = p.elements.filter((e) => e.type === 'door' || e.type === 'window');
+  const ops = p.elements.filter(isOpening);
   const key = (o) => [o.type, Math.round(o.width * 100), Math.round(o.height * 100), o.frame || '', o.kind || ''].join('|');
   for (const o of ops) if (!groups.has(key(o))) groups.set(key(o), []);
   for (const o of ops) groups.get(key(o)).push(o);
-  let f = 0, u = 0;
+  let f = 0, u = 0, g = 0;
   const sorted = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [, list] of sorted) {
-    const m = list[0].type === 'window' ? 'F' + (++f) : 'U' + (++u);
+    const m = list[0].type === 'window' ? 'F' + (++f) : list[0].type === 'gap' ? 'G' + (++g) : 'U' + (++u);
     for (const o of list) marks.set(o.id, m);
   }
   return marks;
@@ -95,14 +95,15 @@ export const USES = {
 };
 
 export const TYPE_NAMES = {
-  wall: 'Perete', door: 'Ușă', window: 'Fereastră', slab: 'Placă', column: 'Stâlp', beam: 'Grindă', roof: 'Acoperiș', zone: 'Zonă (cameră)', dim: 'Cotă', footing: 'Fundație',
+  wall: 'Perete', door: 'Ușă', window: 'Fereastră', gap: 'Gol în perete', slab: 'Placă', column: 'Stâlp', beam: 'Grindă', roof: 'Acoperiș', zone: 'Zonă (cameră)', dim: 'Cotă', footing: 'Fundație',
 };
 
 // Setări implicite ale uneltelor (ce se desenează la următorul clic)
 export const DEFAULTS = {
   wall: { composite: 'ext_bca30_eps10', thickness: 0.425, height: 2.8, material: 'bca', bearing: true, exterior: true, plaster: 0.02 },
-  door: { width: 0.9, height: 2.1, sill: 0, flip: false, name: 'Ușă', frame: 'lemn', kind: 'interioară' },
-  window: { width: 1.2, height: 1.4, sill: 0.9, name: 'Fereastră', frame: 'PVC', uw: 1.1, glazing: 'Tripan Low-E' },
+  door: { width: 0.9, height: 2.1, sill: 0, flip: false, name: 'Ușă', frame: 'lemn', kind: 'interioară', lintel: 'auto' },
+  window: { width: 1.2, height: 1.4, sill: 0.9, name: 'Fereastră', frame: 'PVC', uw: 1.1, glazing: 'Tripan Low-E', lintel: 'auto' },
+  gap: { width: 1.5, height: 2.3, sill: 0, name: 'Gol', lintel: 'auto', lintelH: 0.25 },
   slab: { composite: 'planseu_ba15', thickness: 0.2, offset: 0, material: 'beton', finishes: 1.0, use: 'A', mode: 'rect' },
   footing: { w: 0.6, h: 0.8, depth: 1.1, material: 'beton', steel: 50 },
   column: { w: 0.3, d: 0.3, height: 2.8, material: 'beton' },
@@ -182,7 +183,8 @@ export function bbox(pts) {
 
 // ---------------------------------------------------------------- Pereți și goluri
 export const wallLength = (w) => dist(w.a, w.b);
-export const openingsOf = (p, w) => p.elements.filter((e) => (e.type === 'door' || e.type === 'window') && e.wall === w.id);
+export const isOpening = (e) => e.type === 'door' || e.type === 'window' || e.type === 'gap';
+export const openingsOf = (p, w) => p.elements.filter((e) => isOpening(e) && e.wall === w.id);
 
 // Capetele pereților care se întâlnesc într-un colț se prelungesc cu jumătate de grosime, ca să se închidă colțul.
 export function wallExtensions(p, w) {
@@ -307,6 +309,50 @@ export function takeoff(p) {
 }
 
 // Proiect exemplu: casă P+1 mică, desenată cu aceleași unelte
+// Grosimea și poziția straturilor structurale (beton / zidărie / lemn) ale unui perete,
+// ca decalaje față de axă pe direcția +n (stânga sensului de desen)
+export function wallCore(w) {
+  const ls = layersOf(w);
+  const sgn = w.flipLayers ? 1 : -1;
+  let off = sgn * w.thickness / 2, lo = Infinity, hi = -Infinity, t = 0;
+  for (const l of ls) {
+    const o2 = off - sgn * l.t;
+    if (ls.length === 1 || ['beton', 'zidarie', 'lemn', 'otel'].includes(MATERIALS[l.m]?.kind)) { lo = Math.min(lo, off, o2); hi = Math.max(hi, off, o2); t += l.t; }
+    off = o2;
+  }
+  if (!Number.isFinite(lo)) { lo = -w.thickness / 2; hi = w.thickness / 2; t = w.thickness; }
+  return { lo, hi, t, mat: coreMaterial(w) };
+}
+// Buiandrugul unui gol: lungime (cu rezemări), înălțime, material
+export const LINTEL_BEARING = 0.25;
+export function lintelOf(p, o) {
+  const w = byId(p, o.wall);
+  if (!w || o.lintel === 'none') return null;
+  const core = wallCore(w);
+  if (MATERIALS[core.mat]?.kind !== 'zidarie') return null; // doar zidăria are buiandrugi (betonul e monolit, pereții ușori au toc propriu)
+  const L = wallLength(w);
+  const u0 = Math.max(0, o.pos - o.width / 2 - LINTEL_BEARING), u1 = Math.min(L, o.pos + o.width / 2 + LINTEL_BEARING);
+  const z0 = o.sill + o.height;
+  const h = Math.min(o.lintelH || 0.25, Math.max(0, w.height - z0));
+  if (h <= 0.01) return null;
+  return { w, u0, u1, z0, z1: z0 + h, h, len: u1 - u0, core, type: o.lintelType || 'beton', profile: o.lintelProfile };
+}
+// Reazemele capetelor unei grinzi: peretele (sau stâlpul) pe care stă fiecare capăt
+export function beamEndSupports(p, b) {
+  return [b.a, b.b].map((pt) => {
+    let best = null;
+    for (const e of p.elements) {
+      if (e.storey !== b.storey) continue;
+      let d = Infinity;
+      if (e.type === 'wall') d = projectOnSegment(pt, e.a, e.b).d - e.thickness / 2;
+      else if (e.type === 'column') d = dist(pt, e.p) - Math.max(e.w, e.d) / 2;
+      else continue;
+      if (d < 0.4 && (!best || d < best.d)) best = { e, d, pt };
+    }
+    return best;
+  });
+}
+
 // Cota fețelor superioare a grinzii: grinzile de beton sunt înglobate în placă (fața de sus = cota nivelului următor);
 // cele din oțel și lemn stau sub placa de deasupra.
 export function beamTop(p, e) {

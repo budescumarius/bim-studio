@@ -41,6 +41,9 @@ Aplicație web de proiectare BIM pentru calculator, iPad și telefon. Se instale
   Lungimea de flambaj se alege (1,0·H / 0,7·H / 0,5·H / 2,0·H).
 - **Procentul** de la fiecare variantă e gradul de utilizare: efortul de calcul / capacitatea, la verificarea care decide. Sub 100% = verifică.
   Butonul „Aplică” schimbă grinda / stâlpul din model. Profilele de oțel apar cu secțiune I în 3D și ca `IfcIShapeProfileDef` în IFC, iar în antemăsurătoare se trec la kg.
+- **Goluri în pereți cu buiandrug** (unealta *Gol*, tasta G): deschideri libere în zidărie. Ușile, ferestrele și golurile din pereții de zidărie primesc automat buiandrug de beton armat, rezemat 25 cm în zid la fiecare capăt. Fila **Buiandrugi** din *Dimensionare structură* îl calculează din zidăria de deasupra și încărcările primite de perete și propune beton armat (cu armare) sau profile IPE / HEA.
+- **Cuzineți** sub capetele grinzilor care reazemă pe zidărie: se verifică presiunea locală (SR EN 1996-1-1, β = 1,25) și se propun dimensiunile; „Pune cuzineți” îi adaugă în 3D, în antemăsurătoare (beton, cofraj, armătură) și în IFC.
+- **Mutarea pereților**: prin tragere sau exact, cu „Mută cu…” (Δx, Δy) și „Decalează…” (paralel). Pereții legați de capete se întind ca să rămână lipiți; golurile și fundația merg odată cu peretele.
 - **Export IFC4** (pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri, spații, materiale, Pset-uri, cantități) pentru ARCHICAD, Revit, Allplan etc. Butonul **Model 3D** deschide modelul direct în vizualizator.
 - **Pe iPad și telefon**:
   - Desenezi cu degetul sau cu Apple Pencil. Punctul se pune la ridicarea degetului și apare deasupra degetului, ca să-l vezi.

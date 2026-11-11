@@ -50,7 +50,7 @@ function cleanSel() {
 export function deleteElements(ids) {
   const set = new Set(ids);
   // golurile dispar odată cu peretele lor
-  for (const e of A.p.elements) if ((e.type === 'door' || e.type === 'window') && set.has(e.wall)) set.add(e.id);
+  for (const e of A.p.elements) if ((e.type === 'door' || e.type === 'window' || e.type === 'gap') && set.has(e.wall)) set.add(e.id);
   A.p.elements = A.p.elements.filter((e) => !set.has(e.id));
   for (const id of set) A.sel.delete(id);
 }
