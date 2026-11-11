@@ -622,8 +622,8 @@ export class PlanEditor {
     c.setTransform(k, 0, 0, k, 0, 0);
     c.fillStyle = PAPER;
     c.fillRect(0, 0, this.W, this.H);
-    this.paintGrid();
-    const below = this.belowStorey();
+    if (!this.exporting) this.paintGrid();
+    const below = !this.exporting && this.belowStorey();
     if (below) {
       c.globalAlpha = 0.35;
       for (const e of this.storeyEls(below.id)) if (e.type === 'wall') this.poly(wallOutline(A.p, e), null, '#9aa3b2', 1);
@@ -635,8 +635,8 @@ export class PlanEditor {
     if (this.mode === 'stab') this.paintStab(els, by, selected);
     else this.paintArch(els, by, selected);
     for (const e of by('dim')) this.paintDim(e, selected(e));
-    if (A.showLoads && A.loads) this.paintLoads();
-    this.paintTop();
+    if (A.showLoads && A.loads && !this.exporting) this.paintLoads();
+    if (!this.exporting) this.paintTop();
   }
   // plan de arhitectură
   paintArch(els, by, selected) {
@@ -759,7 +759,7 @@ export class PlanEditor {
   paintLegend() {
     const c = this.ctx, s = storeyOf(A.p, { storey: A.storey });
     const rows = [['wall', 'Perete portant (miez structural)'], ['thin', 'Perete neportant'], ['beam', 'Grindă (deasupra planului)'], ['lintel', 'Buiandrug  Bd l×h / profil'], ['col', 'Stâlp'], ['pad', 'Cuzinet  Cz a×h']];
-    const x = 12, y = 12, w = 238, h = 30 + rows.length * 18;
+    const [x, y] = this.legendPos || [12, 12], w = 238, h = 30 + rows.length * 18;
     c.fillStyle = 'rgba(255,255,255,.94)'; c.strokeStyle = '#c9ced8'; c.lineWidth = 1;
     c.fillRect(x, y, w, h); c.strokeRect(x + 0.5, y + 0.5, w, h);
     c.fillStyle = '#1d2b44'; c.font = '700 12px system-ui, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
@@ -774,6 +774,56 @@ export class PlanEditor {
       if (k === 'pad') { c.fillStyle = 'rgba(120,130,145,.55)'; c.fillRect(sx + 6, yy - 5, 14, 10); c.strokeStyle = '#4a5363'; c.strokeRect(sx + 6, yy - 5, 14, 10); }
       c.fillStyle = '#39445a'; c.font = '11px system-ui, sans-serif'; c.fillText(t, sx + 36, yy + 4);
     });
+  }
+  // ---------------------------------------------------------------- planșă A3 la scară (export PDF)
+  // desenează planul de stabilitate al unui nivel pe o foaie A3 orizontală, cu chenar și cartuș; întoarce canvasul
+  renderSheet(storeyId, info = {}) {
+    const PX = 4, Wmm = 420, Hmm = 297, K = 2.5; // 4 px/mm în coordonate de desen, rezoluție ×2,5 (≈ 254 dpi)
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(Wmm * PX * K); cv.height = Math.round(Hmm * PX * K);
+    const save = { ctx: this.ctx, W: this.W, H: this.H, k: this.k, v: { ...this.v }, storey: A.storey, sel: A.sel, snap: this.snap, draw: this.draw, drag: this.drag, mode: this.mode, legendPos: this.legendPos };
+    try {
+      A.storey = storeyId; A.sel = new Set(); this.snap = null; this.draw = null; this.drag = null; this.mode = 'stab'; this.exporting = true;
+      this.ctx = cv.getContext('2d'); this.W = Wmm * PX; this.H = Hmm * PX; this.k = K;
+      const M = 10, TB = 50; // margine și înălțimea cartușului (mm)
+      const area = { x0: M + 2, y0: M + 2, x1: Wmm - M - 2, y1: Hmm - M - TB - 2 };
+      const els = this.storeyEls(storeyId);
+      const pts = els.flatMap((e) => e.pts || [e.a, e.b, e.p].filter(Boolean));
+      const b = pts.length ? bbox(pts) : { x0: 0, y0: 0, x1: 10, y1: 8 };
+      const need = [b.x1 - b.x0 + 3, b.y1 - b.y0 + 3]; // m, cu loc pentru etichete
+      const scale = [50, 100, 200, 500, 1000].find((sc) => need[0] * 1000 / sc <= area.x1 - area.x0 - 75 && need[1] * 1000 / sc <= area.y1 - area.y0) || 1000;
+      this.v = { s: PX * 1000 / scale, cx: (b.x0 + b.x1) / 2, cy: (b.y0 + b.y1) / 2 };
+      // centrul planului în zona de desen (în dreapta legendei)
+      const cxPx = ((area.x0 + 75 + area.x1) / 2) * PX, cyPx = ((area.y0 + area.y1) / 2) * PX;
+      this.v.cx -= (cxPx - this.W / 2) / this.v.s; this.v.cy += (cyPx - this.H / 2) / this.v.s;
+      this.legendPos = [(M + 3) * PX, (M + 3) * PX];
+      this.paint();
+      const c = this.ctx;
+      c.setTransform(K, 0, 0, K, 0, 0);
+      // chenar
+      c.strokeStyle = '#1d2b44'; c.lineWidth = 2; c.strokeRect(M * PX, M * PX, (Wmm - 2 * M) * PX, (Hmm - 2 * M) * PX);
+      // cartuș
+      const tx = (Wmm - M - 190) * PX, ty = (Hmm - M - TB) * PX, tw = 190 * PX, th = TB * PX;
+      c.fillStyle = '#fff'; c.fillRect(tx, ty, tw, th); c.lineWidth = 1.5; c.strokeRect(tx, ty, tw, th);
+      const rows = [[info.project || A.p.name, 18, '700'], ['PLAN STABILITATE', 15, '700'], [`${info.storey || ''}`, 12, '600'], [`Scara 1:${scale}`, 12, '600'], [`${info.date || new Date().toLocaleDateString('ro-RO')} · BIM Studio`, 10, '400']];
+      let yy = ty + 7 * PX;
+      c.fillStyle = '#1d2b44'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+      for (const [t, sz, w] of rows) { c.font = `${w} ${sz * 1.6}px system-ui, sans-serif`; c.fillText(t, tx + 4 * PX, yy + sz); yy += (sz * 1.6 + 6); }
+      c.font = `400 ${9 * 1.6}px system-ui, sans-serif`; c.fillStyle = '#5b6472';
+      c.fillText('Predimensionare orientativă – se verifică și se semnează de inginer atestat.', tx + 4 * PX, ty + th - 3 * PX);
+      // scara grafică
+      const unit = scale <= 100 ? 1 : scale <= 200 ? 2 : 5, sx = (M + 6) * PX, sy = (Hmm - M - 8) * PX, seg = unit * this.v.s;
+      for (let i = 0; i < 5; i++) { c.fillStyle = i % 2 ? '#fff' : '#1d2b44'; c.fillRect(sx + i * seg, sy - 6, seg, 6); }
+      c.strokeStyle = '#1d2b44'; c.lineWidth = 1; c.strokeRect(sx, sy - 6, 5 * seg, 6);
+      c.fillStyle = '#1d2b44'; c.font = '400 16px system-ui, sans-serif';
+      for (let i = 0; i <= 5; i++) c.fillText(`${i * unit}`, sx + i * seg - 4, sy + 16);
+      c.fillText('m', sx + 5 * seg + 12, sy + 16);
+      return { canvas: cv, scale };
+    } finally {
+      Object.assign(this, { ctx: save.ctx, W: save.W, H: save.H, k: save.k, v: save.v, snap: save.snap, draw: save.draw, drag: save.drag, mode: save.mode, legendPos: save.legendPos, exporting: false });
+      A.storey = save.storey; A.sel = save.sel;
+      this.invalidate();
+    }
   }
   paintGrid() {
     const c = this.ctx, g = this.gridStep();

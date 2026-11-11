@@ -432,12 +432,38 @@ $('#c-grid').onchange = (e) => { plan.gridSnap = e.target.checked; };
 function setPlanMode(m) {
   plan.mode = m;
   for (const b of document.querySelectorAll('#planmode [data-pm]')) b.classList.toggle('on', b.dataset.pm === m);
-  $('#b-png').hidden = m !== 'stab';
+  for (const id of ['#b-png', '#b-pdf', '#b-stabxls']) $(id).hidden = m !== 'stab';
   try { localStorage.setItem('cad:planmode', m); } catch { /* */ }
   plan.invalidate();
 }
 $('#planmode').onclick = (e) => { const b = e.target.closest('[data-pm]'); if (b) setPlanMode(b.dataset.pm); };
 try { if (localStorage.getItem('cad:planmode') === 'stab') setPlanMode('stab'); } catch { /* */ }
+async function exportStabPDF() {
+  const btn = $('#b-pdf'); btn.disabled = true; const old = btn.textContent; btn.textContent = '…';
+  try {
+    const { canvasesToPDF } = await import('./pdf.js');
+    const pages = [];
+    for (const s of sortedStoreys(A.p)) {
+      if (!A.p.elements.some((e) => e.storey === s.id && ['wall', 'column', 'beam', 'slab', 'footing'].includes(e.type))) continue;
+      const { canvas } = plan.renderSheet(s.id, { storey: `${s.name} (cota ${s.elev >= 0 ? '+' : ''}${s.elev.toFixed(2)})` });
+      pages.push({ canvas, wPt: 420 / 25.4 * 72, hPt: 297 / 25.4 * 72 });
+    }
+    if (!pages.length) { toast('Nu există elemente structurale de pus în plan'); return; }
+    download(await canvasesToPDF(pages, `${A.p.name} - Plan stabilitate`), `Plan stabilitate - ${A.p.name}.pdf`);
+    toast(`PDF salvat: ${pages.length} ${pages.length === 1 ? 'planșă' : 'planșe'} A3`);
+  } catch (err) { console.error(err); toast('Exportul PDF a eșuat: ' + err.message, 6000); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+$('#b-pdf').onclick = exportStabPDF;
+$('#b-stabxls').onclick = async () => {
+  const btn = $('#b-stabxls'); btn.disabled = true;
+  try {
+    const { exportExcel } = await import('./excel.js');
+    download(await exportExcel(A.p), `Metraj si antemasuratoare - ${A.p.name}.xlsx`);
+    toast('Excel salvat: foaia „Structură” are metrajul elementelor structurale');
+  } catch (err) { console.error(err); toast('Exportul Excel a eșuat: ' + err.message, 6000); }
+  finally { btn.disabled = false; }
+};
 $('#b-png').onclick = () => {
   plan.paint();
   const s = storeyOf(A.p, { storey: A.storey });
@@ -937,4 +963,10 @@ requestAnimationFrame(() => { plan.resize(); plan.fit(); plan.status(); });
 $('#b-undo').disabled = true; $('#b-redo').disabled = true;
 window.__cad = { A, plan, emit, get view3d() { return view3d; } };
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  // când se instalează o versiune nouă, pagina se reîncarcă o dată ca să folosească fișierele noi (proiectul e salvat automat)
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; try { localStorage.setItem(KEY, JSON.stringify(A.p)); } catch { /* */ } location.reload(); } });
+  navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => {});
+}
