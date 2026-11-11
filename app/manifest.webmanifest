@@ -1,0 +1,21 @@
+{
+  "name": "BIM Studio",
+  "short_name": "BIM Studio",
+  "description": "Proiectare BIM: desen în plan, model 3D, cantități, calcul de sarcini, export IFC și vizualizator IFC/BIMx. Funcționează offline.",
+  "lang": "ro",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#eef1f6",
+  "theme_color": "#1f4fd8",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Vizualizator 3D (IFC, BIMx)", "url": "viewer/" }
+  ]
+}
