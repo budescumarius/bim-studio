@@ -61,6 +61,11 @@ export function computeBOQ(p) {
   // ------------------------------------------------ stâlpi și grinzi
   for (const c of p.elements.filter((e) => e.type === 'column')) {
     const V = c.w * c.d * c.height;
+    const prc = c.profile && profileByName(c.profile);
+    if (prc) {
+      add('S', 'otel_st_' + prc.name.replace(' ', '') + (c.grade || 'S235'), `Stâlpi din oțel laminat ${prc.name} ${c.grade || 'S235'}, cu plăci de bază, montați, inclusiv protecție anticorozivă`, 'kg', prc.G * c.height * 1.1, c, `${n2(c.height)} m × ${prc.G} kg/m × 1,10 (plăci, prinderi)`);
+      continue;
+    }
     if (MATERIALS[c.material]?.kind === 'beton') {
       add('S', 'beton_stalpi', 'Beton armat C25/30 în stâlpi', 'm³', V, c, `${n2(c.w)} × ${n2(c.d)} × ${n2(c.height)}`);
       add('S', 'cofraj_stalpi', 'Cofraj pentru stâlpi', 'm²', 2 * (c.w + c.d) * c.height, c, `2 × (${n2(c.w)} + ${n2(c.d)}) × ${n2(c.height)}`);

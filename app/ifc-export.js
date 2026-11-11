@@ -160,7 +160,14 @@ export function exportIfc(p) {
       else useMat(el.material, s);
     } else if (el.type === 'column') {
       const pl = local(S.pl, el.p[0], el.p[1], 0);
-      const c = e(`IFCCOLUMN('${guid()}',${owner},${str('Stâlp ' + el.id.toUpperCase())},$,$,${pl},${shape([rectSolid(0, 0, el.w, el.d, el.height)], 'SweptSolid', m?.c3)},$,.COLUMN.)`);
+      const pr = el.profile && profileByName(el.profile);
+      let solid;
+      if (pr) {
+        // profilul I în plan: tălpile paralele cu axa x, inima pe axa y (ca în 3D și în plan)
+        const prof = e(`IFCISHAPEPROFILEDEF(.AREA.,${str(pr.name)},${e(`IFCAXIS2PLACEMENT2D(${pt(0, 0)},$)`)},${num(pr.b / 1000)},${num(pr.h / 1000)},${num(pr.tw / 1000)},${num(pr.tf / 1000)},${num(pr.r / 1000)},$,$)`);
+        solid = e(`IFCEXTRUDEDAREASOLID(${prof},${place3(0, 0, 0)},${Z},${num(el.height)})`);
+      } else solid = rectSolid(0, 0, el.w, el.d, el.height);
+      const c = e(`IFCCOLUMN('${guid()}',${owner},${str('Stâlp ' + el.id.toUpperCase() + (pr ? ' ' + pr.name : ''))},$,$,${pl},${shape([solid], 'SweptSolid', pr ? 0x6f7f95 : m?.c3)},$,.COLUMN.)`);
       contained.get(S.s.id).push(c);
       props(c, 'Pset_ColumnCommon', { LoadBearing: true });
       useMat(el.material, c);

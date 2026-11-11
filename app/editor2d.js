@@ -5,6 +5,7 @@ import {
   pointInPoly, wallOutline, wallLength, openingsOf, sortedStoreys, storeyOf, bbox,
 } from './model.js';
 import { A, emit, snapshot, deleteElements } from './state.js';
+import { profileByName } from './design.js';
 
 const PAPER = '#ffffff';
 const INK = '#1d2433';
@@ -811,6 +812,14 @@ export class PlanEditor {
     c.setLineDash([]);
   }
   paintColumn(e, sel) {
+    const pr = e.profile && profileByName(e.profile);
+    if (pr) {
+      // secțiune H în plan
+      const B = pr.b / 1000, H = pr.h / 1000, tw = pr.tw / 1000, tf = pr.tf / 1000, [x, y] = e.p;
+      const pts = [[x - B / 2, y - H / 2], [x + B / 2, y - H / 2], [x + B / 2, y - H / 2 + tf], [x + tw / 2, y - H / 2 + tf], [x + tw / 2, y + H / 2 - tf], [x + B / 2, y + H / 2 - tf], [x + B / 2, y + H / 2], [x - B / 2, y + H / 2], [x - B / 2, y + H / 2 - tf], [x - tw / 2, y + H / 2 - tf], [x - tw / 2, y - H / 2 + tf], [x - B / 2, y - H / 2 + tf]];
+      this.poly(pts, sel ? '#7aa2ff' : '#3d4654', sel ? SEL : INK, 1);
+      return;
+    }
     const pts = [[e.p[0] - e.w / 2, e.p[1] - e.d / 2], [e.p[0] + e.w / 2, e.p[1] - e.d / 2], [e.p[0] + e.w / 2, e.p[1] + e.d / 2], [e.p[0] - e.w / 2, e.p[1] + e.d / 2]];
     this.poly(pts, sel ? '#7aa2ff' : '#5f6672', sel ? SEL : INK, sel ? 2 : 1.5);
     const c = this.ctx; c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 1;
