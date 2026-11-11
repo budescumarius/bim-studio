@@ -13,6 +13,11 @@ function localBox(u0, u1, v0, v1, z0, z1) {
   return new THREE.BoxGeometry(u1 - u0, z1 - z0, v1 - v0).translate((u0 + u1) / 2, (z0 + z1) / 2, (v0 + v1) / 2);
 }
 // matricea care duce sistemul local (u, z, v) al segmentului a→b la cota z0 în sistemul three.js
+// profil I de-a lungul axei u: tălpi de lățime b centrate pe v = vc, fața de sus la zTop
+function iShape(u0, u1, vc, zTop, pr) {
+  const h = pr.h / 1000, b = pr.b / 1000, tw = pr.tw / 1000, tf = pr.tf / 1000;
+  return [localBox(u0, u1, vc - b / 2, vc + b / 2, zTop - tf, zTop), localBox(u0, u1, vc - b / 2, vc + b / 2, zTop - h, zTop - h + tf), localBox(u0, u1, vc - tw / 2, vc + tw / 2, zTop - h + tf, zTop - tf)];
+}
 function lineMatrix(a, b, z0) {
   const d = norm(sub(b, a));
   const ang = Math.atan2(d[1], d[0]); // în plan, CCW de la x
@@ -107,7 +112,12 @@ export function elementGeometry(p, e) {
       const lintelPart = [];
       if (lin) {
         const lpr = lin.type === 'otel' && lin.profile && profileByName(lin.profile);
-        lintelPart.push({ geo: localBox(lin.u0, lin.u1, -lin.core.hi - 0.005, -lin.core.lo + 0.005, lin.z0, lin.z1).applyMatrix4(m), color: lpr ? 0x6f7f95 : 0x9aa1ab });
+        if (lpr) {
+          // profile I (unul sau două alăturate) de-a lungul golului
+          const n = e.lintelN || 1, b = lpr.b / 1000, vc = -(lin.core.lo + lin.core.hi) / 2, parts = [];
+          for (let i = 0; i < n; i++) parts.push(iShape(lin.u0, lin.u1, n > 1 ? vc + (i - 0.5) * Math.max(b, lin.core.t - b) : vc, lin.z1, lpr));
+          lintelPart.push({ geo: merge(parts.flat()).applyMatrix4(m), color: 0x6f7f95, structural: true, sub: 'lintel' });
+        } else lintelPart.push({ geo: localBox(lin.u0, lin.u1, -lin.core.hi - 0.005, -lin.core.lo + 0.005, lin.z0, lin.z1).applyMatrix4(m), color: 0x9aa1ab, structural: true, sub: 'lintel' });
       }
       if (e.type === 'gap') return lintelPart;
       const u0 = e.pos - e.width / 2, u1 = e.pos + e.width / 2, z0 = e.sill, z1 = Math.min(w.height, e.sill + e.height);
@@ -160,7 +170,7 @@ export function elementGeometry(p, e) {
           const bottom = top - (pr ? pr.h / 1000 : e.h);
           const pz1 = Math.min(bottom, ws.elev + w.height), pz0 = pz1 - (e.padH || 0.2);
           const mw = lineMatrix(w.a, w.b, 0);
-          padParts.push({ geo: localBox(r.along - e.padA / 2, r.along + e.padA / 2, -core.hi - 0.005, -core.lo + 0.005, pz0, pz1).applyMatrix4(mw), color: 0x8f969f });
+          padParts.push({ geo: localBox(r.along - e.padA / 2, r.along + e.padA / 2, -core.hi - 0.005, -core.lo + 0.005, pz0, pz1).applyMatrix4(mw), color: 0x8f969f, structural: true, sub: 'pads' });
         }
       }
       if (pr) {

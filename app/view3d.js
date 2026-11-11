@@ -72,9 +72,11 @@ export class View3D {
       if (!host || !allowed.has(host.storey)) continue;
       let parts;
       try { parts = elementGeometry(A.p, e); } catch (err) { console.warn('geometrie', e.id, err); continue; }
+      // modul „Structură”: anvelopa devine transparentă, rămân vizibile elementele portante
+      const ghost = this.xray && ['wall', 'slab', 'roof', 'door', 'window', 'zone'].includes(e.type);
       for (const part of parts) {
-        const m = new THREE.Mesh(part.geo, this.mat(part.color, part.opacity ?? 1));
-        m.userData.id = e.id;
+        const m = new THREE.Mesh(part.geo, this.mat(part.color, ghost && !part.structural ? Math.min(0.12, part.opacity ?? 1) : part.opacity ?? 1));
+        m.userData.id = part.sub ? e.id + ':' + part.sub : e.id; // buiandrugul / cuzineții se selectează separat
         m.userData.base = m.material;
         this.group.add(m);
       }
@@ -85,6 +87,19 @@ export class View3D {
   }
   applySel() {
     for (const m of this.group.children) m.material = A.sel.has(m.userData.id) ? this.hl : m.userData.base;
+    this.dirty = true;
+  }
+  // centrează camera pe un element (după „Vezi în 3D”)
+  focus(id) {
+    if (this.needBuild) this.build();
+    const b = new THREE.Box3();
+    for (const m of this.group.children) if (m.userData.id === id) b.expandByObject(m);
+    if (b.isEmpty()) return;
+    const c = b.getCenter(new THREE.Vector3()), r = Math.max(2.5, b.getSize(new THREE.Vector3()).length() * 1.4);
+    const dir = this.cam.position.clone().sub(this.ctl.target).normalize();
+    this.ctl.target.copy(c);
+    this.cam.position.copy(c).add(dir.multiplyScalar(r));
+    this.ctl.update();
     this.dirty = true;
   }
   fit() {
@@ -106,7 +121,7 @@ export class View3D {
     if (hit) {
       const id = hit.object.userData.id;
       if (e.shiftKey && A.sel.has(id)) A.sel.delete(id); else A.sel.add(id);
-      const el = A.p.elements.find((x) => x.id === id);
+      const el = A.p.elements.find((x) => x.id === id.split(':')[0]);
       const st = el?.wall ? A.p.elements.find((w) => w.id === el.wall)?.storey : el?.storey;
       if (st && st !== A.storey) { A.storey = st; emit('storey'); }
     }

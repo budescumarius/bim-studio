@@ -48,6 +48,14 @@ function cleanSel() {
   if (!A.p.storeys.some((s) => s.id === A.storey)) A.storey = A.p.storeys[0].id;
 }
 export function deleteElements(ids) {
+  // sub-elemente: buiandrugul („id:lintel”) și cuzineții („id:pads”) se scot de pe element
+  for (const id of ids) {
+    const [base, sub] = String(id).split(':');
+    const el = sub && A.p.elements.find((e) => e.id === base);
+    if (el && sub === 'lintel') el.lintel = 'none';
+    if (el && sub === 'pads') { delete el.padA; delete el.padH; }
+    if (sub) A.sel.delete(id);
+  }
   const set = new Set(ids);
   // golurile dispar odată cu peretele lor
   for (const e of A.p.elements) if ((e.type === 'door' || e.type === 'window' || e.type === 'gap') && set.has(e.wall)) set.add(e.id);
