@@ -2,7 +2,8 @@
 // Sistemul three.js: x = x plan, y = cotă (sus), z = -y plan.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MATERIALS, byId, storeyOf, wallPieces, wallLength, norm, sub, bbox, layersOf, footingExtensions } from './model.js';
+import { profileByName } from './design.js';
+import { beamTop, MATERIALS, byId, storeyOf, wallPieces, wallLength, norm, sub, bbox, layersOf, footingExtensions } from './model.js';
 
 const toIndexed = (g) => { if (!g.index) { const n = g.attributes.position.count, a = new Uint32Array(n); for (let i = 0; i < n; i++) a[i] = i; g.setIndex(new THREE.BufferAttribute(a, 1)); } for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k); return g; };
 const merge = (list) => (list.length === 1 ? toIndexed(list[0]) : mergeGeometries(list.map(toIndexed)));
@@ -130,8 +131,15 @@ export function elementGeometry(p, e) {
       return [{ geo: g, color: mat?.c3 || 0xbbbbbb }];
     }
     case 'beam': {
-      const top = z + s.height;
+      const top = beamTop(p, e);
       const L = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+      const pr = e.profile && profileByName(e.profile);
+      if (pr) {
+        // profil laminat I: două tălpi și inimă
+        const h = pr.h / 1000, b = pr.b / 1000, tw = pr.tw / 1000, tf = pr.tf / 1000;
+        const parts = [localBox(0, L, -b / 2, b / 2, top - tf, top), localBox(0, L, -b / 2, b / 2, top - h, top - h + tf), localBox(0, L, -tw / 2, tw / 2, top - h + tf, top - tf)];
+        return [{ geo: merge(parts).applyMatrix4(lineMatrix(e.a, e.b, 0)), color: 0x6f7f95 }];
+      }
       const g = localBox(0, L, -e.w / 2, e.w / 2, top - e.h, top).applyMatrix4(lineMatrix(e.a, e.b, 0));
       return [{ geo: g, color: mat?.c3 || 0xbbbbbb }];
     }

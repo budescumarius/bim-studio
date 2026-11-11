@@ -30,6 +30,11 @@ Aplicație web de proiectare BIM pentru calculator, iPad și telefon. Se instale
   - verificări orientative pentru zidărie, stâlpi, grinzi și plăci, plus lățimea fundațiilor;
   - afișare colorată pe plan și export CSV.
   - Nu include seismul și vântul și nu înlocuiește proiectul de rezistență semnat de un inginer atestat.
+- **Dimensionarea grinzilor** (predimensionare, din calculul de sarcini). Pentru fiecare grindă propune:
+  - **oțel:** cel mai ușor **IPE, HEA și HEB** în S235 sau S355 (încovoiere, forfecare, săgeată L/250; SR EN 1993-1-1);
+  - **beton armat C25/30:** secțiunea b × h, armătura de jos (n Ø) și etrierii (SR EN 1992-1-1);
+  - **lemn lamelar GL24h:** secțiunea b × h (SR EN 1995-1-1).
+  Butonul „Aplică” schimbă grinda din model. Profilele de oțel apar cu secțiune I în 3D și ca `IfcIShapeProfileDef` în IFC, iar în antemăsurătoare se trec la kg.
 - **Export IFC4** (pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri, spații, materiale, Pset-uri, cantități) pentru ARCHICAD, Revit, Allplan etc. Butonul **Model 3D** deschide modelul direct în vizualizator.
 - **Pe iPad și telefon**:
   - Desenezi cu degetul sau cu Apple Pencil. Punctul se pune la ridicarea degetului și apare deasupra degetului, ca să-l vezi.

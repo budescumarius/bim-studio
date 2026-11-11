@@ -1,5 +1,6 @@
 // Antemăsurătoare generată din model: articole pe capitole de deviz, cu detalierea calculului pe elemente.
 // Cantitățile se obțin din geometria 3D (pereți pe straturi, plăci, fundații, acoperiș, tâmplărie, finisaje pe camere).
+import { profileByName } from './design.js';
 import {
   MATERIALS, COMPOSITES, FINISH, layersOf, openingMarks, storeyOf, byId, wallLength, openingsOf, polyArea, polyPerimeter,
   projectOnSegment, dist, footingExtensions, sortedStoreys, bbox,
@@ -68,6 +69,11 @@ export function computeBOQ(p) {
   }
   for (const b of p.elements.filter((e) => e.type === 'beam')) {
     const L = dist(b.a, b.b), V = L * b.w * b.h;
+    const pr = b.profile && profileByName(b.profile);
+    if (pr) {
+      add('S', 'otel_' + pr.name.replace(' ', '') + (b.grade || 'S235'), `Grinzi din oțel laminat ${pr.name} ${b.grade || 'S235'}, montate, inclusiv protecție anticorozivă`, 'kg', pr.G * L * 1.05, b, `${n2(L)} m × ${pr.G} kg/m × 1,05 (prinderi)`);
+      continue;
+    }
     if (MATERIALS[b.material]?.kind === 'beton') {
       add('S', 'beton_grinzi', 'Beton armat C25/30 în grinzi', 'm³', V, b, `${n2(L)} × ${n2(b.w)} × ${n2(b.h)}`);
       add('S', 'cofraj_grinzi', 'Cofraj pentru grinzi', 'm²', L * (2 * b.h + b.w), b, `${n2(L)} × (2 × ${n2(b.h)} + ${n2(b.w)})`);

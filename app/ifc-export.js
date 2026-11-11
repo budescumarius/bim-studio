@@ -1,8 +1,9 @@
 // Export IFC4 (Reference View): pereți cu goluri, uși, ferestre, plăci, stâlpi, grinzi, acoperișuri,
 // spații (camere), materiale, culori, seturi de proprietăți și cantități de bază.
 // Fișierul se poate deschide în ARCHICAD, Revit, Allplan, Tekla, BIMcollab, programe de calcul structural etc.
-import { MATERIALS, USES, COMPOSITES, layersOf, footingExtensions, sortedStoreys, storeyOf, byId, wallLength, wallExtensions, polyArea, quantities, norm, sub, dist } from './model.js';
+import { beamTop, MATERIALS, USES, COMPOSITES, layersOf, footingExtensions, sortedStoreys, storeyOf, byId, wallLength, wallExtensions, polyArea, quantities, norm, sub, dist } from './model.js';
 import { elementGeometry } from './geometry3d.js';
+import { profileByName } from './design.js';
 
 const GUID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
 const guid = () => { let s = GUID_CHARS[Math.floor(Math.random() * 4)]; for (let i = 0; i < 21; i++) s += GUID_CHARS[Math.floor(Math.random() * 64)]; return s; };
@@ -165,8 +166,16 @@ export function exportIfc(p) {
       useMat(el.material, c);
     } else if (el.type === 'beam') {
       const Lb = Math.hypot(el.b[0] - el.a[0], el.b[1] - el.a[1]), d = norm(sub(el.b, el.a));
-      const pl = local(S.pl, el.a[0], el.a[1], S.s.height - el.h, dir(d[0], d[1], 0));
-      const b = e(`IFCBEAM('${guid()}',${owner},${str('Grindă ' + el.id.toUpperCase())},$,$,${pl},${shape([rectSolid(Lb / 2, 0, Lb, el.w, el.h)], 'SweptSolid', m?.c3)},$,.BEAM.)`);
+      const pl = local(S.pl, el.a[0], el.a[1], beamTop(p, el) - S.s.elev - el.h, dir(d[0], d[1], 0));
+      const pr = el.profile && profileByName(el.profile);
+      let solid;
+      if (pr) {
+        // profil I extrudat de-a lungul grinzii
+        const prof = e(`IFCISHAPEPROFILEDEF(.AREA.,${str(pr.name)},${e(`IFCAXIS2PLACEMENT2D(${pt(0, 0)},$)`)},${num(pr.b / 1000)},${num(pr.h / 1000)},${num(pr.tw / 1000)},${num(pr.tf / 1000)},${num(pr.r / 1000)},$,$)`);
+        const pos = e(`IFCAXIS2PLACEMENT3D(${pt(0, 0, el.h / 2)},${dir(1, 0, 0)},${dir(0, 1, 0)})`);
+        solid = e(`IFCEXTRUDEDAREASOLID(${prof},${pos},${Z},${num(Lb)})`);
+      } else solid = rectSolid(Lb / 2, 0, Lb, el.w, el.h);
+      const b = e(`IFCBEAM('${guid()}',${owner},${str('Grindă ' + el.id.toUpperCase() + (pr ? ' ' + pr.name : ''))},$,$,${pl},${shape([solid], 'SweptSolid', pr ? 0x6f7f95 : m?.c3)},$,.BEAM.)`);
       contained.get(S.s.id).push(b);
       props(b, 'Pset_BeamCommon', { LoadBearing: true, Span: Lb });
       useMat(el.material, b);
